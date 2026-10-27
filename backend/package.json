@@ -1,0 +1,32 @@
+{
+  "name": "meal-planner-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx --watch src/server.ts",
+    "start": "node --env-file=.env dist/server.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "db:check": "node --env-file=.env --import tsx src/scripts/check-db.ts",
+    "db:init": "node --env-file=.env --import tsx src/scripts/init-db.ts",
+    "test": "node --env-file=.env --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "jose": "^6.2.13",
+    "mysql2": "^3.24.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
