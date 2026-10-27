@@ -15,6 +15,14 @@ export const pool = mysql.createPool({
 });
 
 async function ensureExternalFoodSnapshots() {
+  const [profileRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS nombre FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuario'`,
+    [config.db.database],
+  );
+  const profileColumns = new Set(profileRows.map(row => String(row.nombre)));
+  if (!profileColumns.has('edad')) await pool.query('ALTER TABLE usuario ADD COLUMN edad TINYINT UNSIGNED NULL');
+  if (!profileColumns.has('sexo')) await pool.query("ALTER TABLE usuario ADD COLUMN sexo VARCHAR(12) NULL");
+  if (!profileColumns.has('nivel_actividad')) await pool.query("ALTER TABLE usuario ADD COLUMN nivel_actividad VARCHAR(16) NULL");
   const [foodRows] = await pool.execute<mysql.RowDataPacket[]>(
     `SELECT COLUMN_NAME AS nombre FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'alimento'`,
     [config.db.database],

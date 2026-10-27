@@ -155,9 +155,18 @@ router.get('/dashboard', requireUser, async (req, res) => {
   const date = dateValue(req.query.fecha ?? new Date().toISOString().slice(0, 10), 'Fecha');
   const userId = res.locals.userId as number;
   const [[calories]] = await pool.execute<RowDataPacket[]>('SELECT COALESCE(SUM(calorias_totales), 0) AS calorias, COUNT(*) AS consumos FROM consumo_alimento WHERE id_usuario = ? AND fecha = ?', [userId, date]);
+  const [[macros]] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.proteinas, a.proteinas) IS NOT NULL THEN COALESCE(c.proteinas, a.proteinas) * c.cantidad / 100 ELSE 0 END), 0) AS proteinas,
+       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.carbohidratos, a.carbohidratos) IS NOT NULL THEN COALESCE(c.carbohidratos, a.carbohidratos) * c.cantidad / 100 ELSE 0 END), 0) AS carbohidratos,
+       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.grasas, a.grasas) IS NOT NULL THEN COALESCE(c.grasas, a.grasas) * c.cantidad / 100 ELSE 0 END), 0) AS grasas,
+       COALESCE(SUM(CASE WHEN c.unidad_medida <> 'g' OR COALESCE(c.proteinas, a.proteinas) IS NULL OR COALESCE(c.carbohidratos, a.carbohidratos) IS NULL OR COALESCE(c.grasas, a.grasas) IS NULL THEN 1 ELSE 0 END), 0) AS macros_incompletos
+     FROM consumo_alimento c LEFT JOIN alimento a ON a.id_alimento = c.id_alimento
+     WHERE c.id_usuario = ? AND c.fecha = ?`, [userId, date],
+  );
   const [[meals]] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) AS comidas FROM comida c JOIN plan_comida p ON p.id_plan = c.id_plan WHERE p.id_usuario = ? AND c.fecha = ?`, [userId, date]);
   const [[recipes]] = await pool.execute<RowDataPacket[]>('SELECT COUNT(*) AS recetas FROM receta WHERE id_usuario = ?', [userId]);
-  res.json({ fecha: date, calorias: Number(calories.calorias), consumos: Number(calories.consumos), comidas: Number(meals.comidas), recetas: Number(recipes.recetas) });
+  res.json({ fecha: date, calorias: Number(calories.calorias), consumos: Number(calories.consumos), comidas: Number(meals.comidas), recetas: Number(recipes.recetas), proteinas: Number(macros.proteinas), carbohidratos: Number(macros.carbohidratos), grasas: Number(macros.grasas), macros_incompletos: Number(macros.macros_incompletos) });
 });
 
 router.get('/plans', requireUser, async (req, res) => {
@@ -199,6 +208,53 @@ router.post('/plans/:id/meals', requireUser, async (req, res) => {
   await ensureOwned('plan_comida', 'id_plan', planId, res.locals.userId);
   const [result] = await pool.execute<ResultSetHeader>('INSERT INTO comida (id_plan, tipo_comida, fecha, hora) VALUES (?, ?, ?, ?)', [planId, mealType(body.tipo_comida), date, timeValue(body.hora)]);
   res.status(201).json({ id_comida: result.insertId, id_plan: planId, tipo_comida: body.tipo_comida, fecha: date, hora: timeValue(body.hora), alimentos: [] });
+});
+
+router.post('/plans/:id/generate-meals', requireUser, async (req, res) => {
+  const planId = idParam(req.params.id);
+  const body = v.bodyObject(req.body);
+  const from = dateValue(body.fecha_inicio, 'Fecha inicial');
+  const to = dateValue(body.fecha_fin, 'Fecha final');
+  const span = (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000;
+  if (to < from || span > 365) throw new HttpError(400, 'El intervalo debe ser válido y no superar un año.');
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [plans] = await connection.execute<RowDataPacket[]>(
+      `SELECT DATE_FORMAT(fecha_inicio, '%Y-%m-%d') AS fecha_inicio, DATE_FORMAT(fecha_fin, '%Y-%m-%d') AS fecha_fin
+       FROM plan_comida WHERE id_plan = ? AND id_usuario = ? FOR UPDATE`, [planId, res.locals.userId],
+    );
+    const plan = plans[0];
+    if (!plan) throw new HttpError(404, 'No encontramos ese plan en tu cuenta.');
+    if (from < String(plan.fecha_inicio) || to > String(plan.fecha_fin)) throw new HttpError(400, 'El intervalo elegido debe quedar dentro de las fechas del plan.');
+
+    const [existing] = await connection.execute<RowDataPacket[]>(
+      'SELECT DATE_FORMAT(fecha, \'%Y-%m-%d\') AS fecha, tipo_comida FROM comida WHERE id_plan = ? AND fecha BETWEEN ? AND ?',
+      [planId, from, to],
+    );
+    const existingMeals = new Set(existing.map(row => `${String(row.fecha)}:${String(row.tipo_comida)}`));
+    const values: string[] = [];
+    const params: (number | string)[] = [];
+    const cursor = new Date(`${from}T00:00:00Z`);
+    const final = new Date(`${to}T00:00:00Z`);
+    for (; cursor <= final; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      const date = cursor.toISOString().slice(0, 10);
+      for (const type of ['desayuno', 'almuerzo', 'cena'] as const) {
+        if (existingMeals.has(`${date}:${type}`)) continue;
+        values.push('(?, ?, ?, NULL)');
+        params.push(planId, type, date);
+      }
+    }
+    if (values.length) await connection.execute(`INSERT INTO comida (id_plan, tipo_comida, fecha, hora) VALUES ${values.join(', ')}`, params);
+    await connection.commit();
+    res.json({ created_count: values.length });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 router.put('/meals/:id', requireUser, async (req, res) => {

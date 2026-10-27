@@ -3,7 +3,7 @@ import { ApiError, apiRequest, setAccessToken } from '@/services/api';
 import { deleteToken, readToken, writeToken } from '@/services/session-store';
 import type { UserProfile } from '@/types/meal-planner';
 
-export type ProfileUpdate = Pick<UserProfile, 'nombre' | 'apellido' | 'objetivo' | 'peso_actual' | 'estatura'>;
+export type ProfileUpdate = Pick<UserProfile, 'nombre' | 'apellido' | 'objetivo' | 'peso_actual' | 'estatura' | 'edad' | 'sexo' | 'nivel_actividad'>;
 type Session = { token: string; user: UserProfile };
 type Credentials = { correo: string; password: string };
 type AuthState = {

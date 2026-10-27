@@ -22,6 +22,7 @@ El script no contiene `DROP DATABASE`, `DROP TABLE` ni datos de prueba. Se puede
 - El correo se guarda sin espacios exteriores y en minúsculas. Es único sin distinguir mayúsculas; sus acentos sí se distinguen. La comprobación SQL del formato es básica; el backend debe validar el correo completo.
 - `password_hash` reemplaza el campo conceptual de contraseña. El backend genera un hash Argon2id o bcrypt antes de insertarlo; SQL no implementa el inicio de sesión ni verifica que una cadena sea un hash válido.
 - `peso_actual` se expresa en **kg** y `estatura` en **cm**. Ambos y el objetivo pueden quedar vacíos mientras se completa el perfil.
+- La estimación diaria de calorías usa edad (19+), sexo (`femenino`/`masculino`) y nivel de actividad (`inactivo`, `bajo`, `activo`, `muy_activo`), además de peso, estatura y objetivo. Son datos opcionales; completar todos habilita el cálculo orientativo.
 - Objetivos permitidos: `bajar_peso`, `aumentar_masa_muscular` y `mantener_peso`.
 - Tipos de comida: `desayuno`, `almuerzo`, `cena` y `snack`. Cantidades positivas; unidades `g`, `ml`, `porcion` o `unidad`.
 - Las calorías del catálogo se expresan en **kcal por 100 g**; los macronutrientes en **g por 100 g**. Los valores desconocidos permanecen `NULL`. `calorias_totales` puede ser `NULL` y, si se utiliza, lo calcula el backend con equivalencias válidas. No se recalculan consumos históricos al editar el catálogo.

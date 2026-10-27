@@ -1,18 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Link, type Href } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccountGate, FormButton, FormNotice } from '@/components/form-controls';
+import { AccountGate, FormNotice } from '@/components/form-controls';
+import { CalorieGoalChart } from '@/components/calorie-goal-chart';
 import { MealScreen } from '@/components/meal-screen';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
 import { getConsumptions, getDashboard, getPlans, type Consumption, type Dashboard, type MealPlan } from '@/services/meal-planner';
 
-const sections: { href: Href; title: string; description: string; number: string }[] = [
-  { href: '/planner', title: 'Planificador', description: 'Dale un lugar a cada comida de tu semana.', number: '01' },
-  { href: '/history', title: 'Historial', description: 'Un espacio para revisar tu alimentación.', number: '02' },
-  { href: '/recipes', title: 'Recetas', description: 'Conserva tus ideas favoritas para cocinar.', number: '03' },
-  { href: '/profile', title: 'Mi perfil', description: 'Tus objetivos, a tu propio ritmo.', number: '04' },
-];
+const weekdays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -21,53 +17,72 @@ export default function HomeScreen() {
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [reload, setReload] = useState(0);
-  const today = (() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; })();
+  const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
+  const displayName = [user?.nombre, user?.apellido].filter(Boolean).join(' ') || 'Usuario';
+  const initial = displayName.charAt(0).toLocaleUpperCase('es');
+  const today = dateKey(new Date());
+  const monthTitle = calendarMonth.toLocaleDateString('es-GT', { month: 'long', year: 'numeric' });
+  const firstOffset = (new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
+  const calendarDays: (number | null)[] = [...Array.from({ length: firstOffset }, () => null), ...Array.from({ length: daysInMonth }, (_, index) => index + 1)];
+  const canGoNext = dateKey(calendarMonth) < `${today.slice(0, 7)}-01`;
+
   useEffect(() => {
     if (!user) return;
     let active = true;
     const timer = setTimeout(() => {
       setLoading(true); setError('');
-      Promise.all([getDashboard(today), getPlans(today, today), getConsumptions(today, today)])
+      Promise.all([getDashboard(selectedDate), getPlans(selectedDate, selectedDate), getConsumptions(selectedDate, selectedDate)])
         .then(([stats, planRows, intake]) => { if (active) { setSummary(stats); setPlans(planRows); setConsumptions(intake); } })
         .catch(e => { if (active) setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen.'); })
         .finally(() => { if (active) setLoading(false); });
     }, 0);
     return () => { active = false; clearTimeout(timer); };
-  }, [user, today, reload]);
+  }, [user, selectedDate]);
+
   return (
-    <MealScreen title="Comer bien empieza con un pequeño plan." subtitle="Organiza tu alimentación, un día a la vez.">
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>UN MOMENTO PARA TI</Text>
-        <Text style={styles.heroTitle}>Haz espacio para tus buenos hábitos.</Text>
-        <Text style={styles.heroBody}>Tu planificación y lo que consumes son parte de la misma historia.</Text>
-        <Link href="/planner" asChild>
-          <Pressable accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-            <Text style={styles.buttonLabel}>Explorar mi planificador →</Text>
-          </Pressable>
-        </Link>
-      </View>
-      <Text accessibilityRole="header" style={styles.sectionTitle}>Tu espacio de alimentación</Text>
-      <View style={styles.grid}>
-        {sections.map((section) => (
-          <Link key={section.title} href={section.href} asChild>
-            <Pressable accessibilityRole="button" style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
-              <Text style={styles.number}>{section.number}</Text>
-              <Text style={styles.cardTitle}>{section.title}</Text>
-              <Text style={styles.cardBody}>{section.description}</Text>
-            </Pressable>
-          </Link>
-        ))}
-      </View>
+    <MealScreen title="" subtitle="" showBrand={false} showHeading={false}>
       <AccountGate>
-        <View style={styles.summary}>
-          <View style={styles.summaryHeader}><Text style={styles.sectionTitle}>Tu día de hoy</Text><Pressable accessibilityRole="button" onPress={() => setReload(value => value + 1)}><Text style={styles.refresh}>Actualizar</Text></Pressable></View>
-          {loading ? <ActivityIndicator accessibilityLabel="Cargando resumen" color={palette.green} /> : error ? <FormNotice>{error}</FormNotice> : <>
-            <View style={styles.stats}><View style={styles.stat}><Text style={styles.statNumber}>{summary?.calorias ?? 0}</Text><Text style={styles.statLabel}>kcal registradas</Text></View><View style={styles.stat}><Text style={styles.statNumber}>{summary?.comidas ?? 0}</Text><Text style={styles.statLabel}>comidas planeadas</Text></View><View style={styles.stat}><Text style={styles.statNumber}>{summary?.recetas ?? 0}</Text><Text style={styles.statLabel}>recetas guardadas</Text></View></View>
-            {plans.length ? plans.map(plan => <View key={plan.id_plan} style={styles.todayGroup}><Text style={styles.todayGroupTitle}>{plan.nombre_plan}</Text>{plan.comidas.filter(meal => meal.fecha === today).map(meal => <Text key={meal.id_comida} style={styles.todayLine}>• {meal.tipo_comida}{meal.hora ? `, ${meal.hora}` : ''}: {meal.alimentos.map(food => food.nombre).join(', ') || 'sin alimentos agregados'}</Text>)}</View>) : <Text style={styles.cardBody}>Aún no tienes comidas planificadas para hoy.</Text>}
-            {consumptions.length > 0 && <View style={styles.todayGroup}><Text style={styles.todayGroupTitle}>Consumo registrado</Text>{consumptions.map(item => <Text key={item.id_consumo} style={styles.todayLine}>• {item.alimento} · {item.cantidad} {item.unidad_medida}{item.calorias_totales == null ? '' : ` · ${item.calorias_totales} kcal`}</Text>)}</View>}
+        <View style={styles.content}>
+          <View style={styles.summaryHeader}>
+            <View accessibilityLabel={`Usuario: ${displayName}`} style={styles.userBadge}>
+              <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
+              <Text numberOfLines={1} style={styles.userName}>{displayName}</Text>
+            </View>
+          </View>
+          <View style={styles.calendar}>
+            <View style={styles.calendarHeader}>
+              <View style={styles.monthControls}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Mes anterior" onPress={() => setCalendarMonth(month => new Date(month.getFullYear(), month.getMonth() - 1, 1))} style={styles.monthButton}><Text style={styles.monthArrow}>{'\u2039'}</Text></Pressable>
+                <Text style={styles.monthTitle}>{monthTitle.charAt(0).toLocaleUpperCase('es') + monthTitle.slice(1)}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Mes siguiente" accessibilityState={{ disabled: !canGoNext }} disabled={!canGoNext} onPress={() => setCalendarMonth(month => new Date(month.getFullYear(), month.getMonth() + 1, 1))} style={[styles.monthButton, !canGoNext && styles.monthButtonDisabled]}><Text style={styles.monthArrow}>{'\u203a'}</Text></Pressable>
+              </View>
+              {selectedDate !== today && <Pressable accessibilityRole="button" onPress={() => { setSelectedDate(today); setCalendarMonth(new Date()); }}><Text style={styles.todayLink}>Hoy</Text></Pressable>}
+            </View>
+            <View style={styles.calendarGrid}>
+              {weekdays.map((day, index) => <View key={`weekday-${index}`} style={styles.calendarCell}><Text style={styles.weekday}>{day}</Text></View>)}
+              {calendarDays.map((day, index) => {
+                if (day == null) return <View key={`blank-${index}`} style={styles.calendarCell} />;
+                const key = dateKey(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day));
+                const isSelected = key === selectedDate;
+                const isToday = key === today;
+                const isFuture = key > today;
+                const dateLabel = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day).toLocaleDateString('es-GT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                return <Pressable key={key} accessibilityRole="button" accessibilityLabel={dateLabel} accessibilityState={{ selected: isSelected, disabled: isFuture }} disabled={isFuture} onPress={() => setSelectedDate(key)} style={[styles.calendarCell, styles.dayCell, isToday && styles.todayCell, isSelected && styles.selectedCell, isFuture && styles.futureCell]}><Text style={[styles.dayText, isSelected && styles.selectedDayText, isFuture && styles.futureDayText]}>{day}</Text></Pressable>;
+              })}
+            </View>
+          </View>
+          {loading ? <ActivityIndicator accessibilityLabel="Cargando resumen" color={palette.green} size="large" /> : error ? <FormNotice>{error}</FormNotice> : <>
+            {user && <CalorieGoalChart user={user} calories={summary?.calorias ?? 0} macros={{ proteinas: summary?.proteinas ?? 0, carbohidratos: summary?.carbohidratos ?? 0, grasas: summary?.grasas ?? 0 }} macrosIncomplete={summary?.macros_incompletos ?? 0} />}
+            <View style={styles.stats}>
+              <View style={styles.stat}><Text style={styles.statNumber}>{summary?.calorias ?? 0}</Text><Text style={styles.statLabel}>kcal registradas</Text></View>
+              <View style={styles.stat}><Text style={styles.statNumber}>{summary?.comidas ?? 0}</Text><Text style={styles.statLabel}>comidas planeadas</Text></View>
+              <View style={styles.stat}><Text style={styles.statNumber}>{summary?.recetas ?? 0}</Text><Text style={styles.statLabel}>recetas guardadas</Text></View>
+            </View>
+            {plans.length ? plans.map(plan => <View key={plan.id_plan} style={styles.todayGroup}><Text style={styles.todayGroupTitle}>{plan.nombre_plan}</Text>{plan.comidas.filter(meal => meal.fecha === selectedDate).map(meal => <Text key={meal.id_comida} style={styles.todayLine}>{'\u2022'} {meal.tipo_comida}{meal.hora ? `, ${meal.hora}` : ''}: {meal.alimentos.map(food => food.nombre).join(', ') || 'sin alimentos agregados'}</Text>)}</View>) : <Text style={styles.cardBody}>{`No hay comidas planificadas para ${selectedDate === today ? 'hoy' : 'esta fecha'}.`}</Text>}
+            {consumptions.length > 0 && <View style={styles.todayGroup}><Text style={styles.todayGroupTitle}>Consumo registrado</Text>{consumptions.map(item => <Text key={item.id_consumo} style={styles.todayLine}>{'\u2022'} {item.alimento} {'\u00b7'} {item.cantidad} {item.unidad_medida}{item.calorias_totales == null ? '' : ` \u00b7 ${item.calorias_totales} kcal`}</Text>)}</View>}
           </>}
-          <View style={styles.quickLinks}><Link href="/planner" asChild><Pressable accessibilityRole="button" style={styles.quickButton}><Text style={styles.quickText}>Planear una comida</Text></Pressable></Link><Link href="/history" asChild><Pressable accessibilityRole="button" style={styles.quickButton}><Text style={styles.quickText}>Registrar consumo</Text></Pressable></Link></View>
         </View>
       </AccountGate>
     </MealScreen>
@@ -75,22 +90,36 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  hero: { padding: 24, borderRadius: 26, backgroundColor: palette.green, gap: 16 },
-  eyebrow: { color: palette.amber, fontWeight: '700', fontSize: 11, letterSpacing: 1.5 },
-  heroTitle: { color: '#FFFFFF', fontSize: 27, fontWeight: '700', lineHeight: 34 },
-  heroBody: { color: '#E2EDDF', fontSize: 15, lineHeight: 24 },
-  button: { backgroundColor: palette.amber, borderRadius: 14, padding: 16, alignSelf: 'flex-start' },
-  buttonLabel: { color: palette.ink, fontWeight: '700', fontSize: 14 },
-  pressed: { opacity: 0.75 },
-  sectionTitle: { fontSize: 20, fontWeight: '700', color: palette.ink },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  card: { flexGrow: 1, flexBasis: '45%', minWidth: 135, borderRadius: 20, padding: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, gap: 9 },
-  number: { color: palette.green, fontSize: 12, fontWeight: '700' },
-  cardTitle: { fontSize: 18, fontWeight: '700', color: palette.ink },
+  content: { gap: 18 },
+  summaryHeader: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' },
+  userBadge: { maxWidth: '75%', flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7, paddingLeft: 7, paddingRight: 14, borderRadius: 24, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: palette.green, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  userName: { color: palette.ink, fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  calendar: { padding: 16, borderRadius: 22, backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1, gap: 12 },
+  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  monthControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  monthButton: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.greenSoft },
+  monthButtonDisabled: { opacity: 0.35 },
+  monthArrow: { color: palette.green, fontSize: 27, lineHeight: 30 },
+  monthTitle: { color: palette.ink, fontSize: 16, fontWeight: '800', minWidth: 125 },
+  todayLink: { color: palette.green, fontSize: 13, fontWeight: '700', padding: 6 },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calendarCell: { width: '14.2857%', height: 38, alignItems: 'center', justifyContent: 'center' },
+  weekday: { color: palette.muted, fontSize: 12, fontWeight: '700' },
+  dayCell: { borderRadius: 13 },
+  dayText: { color: palette.ink, fontSize: 13, fontWeight: '600' },
+  todayCell: { borderWidth: 1, borderColor: palette.green },
+  selectedCell: { backgroundColor: palette.green, borderColor: palette.green },
+  selectedDayText: { color: '#FFFFFF', fontWeight: '800' },
+  futureCell: { opacity: 0.3 },
+  futureDayText: { color: palette.muted },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  stat: { flexGrow: 1, flexBasis: '28%', padding: 14, borderRadius: 16, backgroundColor: palette.greenSoft, gap: 4 },
+  statNumber: { color: palette.green, fontSize: 21, fontWeight: '800' },
+  statLabel: { color: palette.muted, fontSize: 12 },
+  todayGroup: { gap: 8, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 14 },
+  todayGroupTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' },
+  todayLine: { color: palette.muted, fontSize: 14, lineHeight: 21 },
   cardBody: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-  summary: { padding: 22, borderRadius: 22, gap: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
-  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, refresh: { color: palette.green, fontWeight: '700', padding: 8 },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, stat: { flexGrow: 1, flexBasis: '28%', padding: 14, borderRadius: 14, backgroundColor: palette.greenSoft, gap: 4 }, statNumber: { color: palette.green, fontSize: 21, fontWeight: '800' }, statLabel: { color: palette.muted, fontSize: 12 },
-  todayGroup: { gap: 8, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 14 }, todayGroupTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' }, todayLine: { color: palette.muted, fontSize: 14, lineHeight: 21 },
-  quickLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, quickButton: { borderRadius: 12, backgroundColor: palette.green, padding: 12 }, quickText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 });

@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS usuario (
         COMMENT 'bajar_peso, aumentar_masa_muscular o mantener_peso',
     peso_actual DECIMAL(6,2) NULL COMMENT 'Kilogramos',
     estatura DECIMAL(5,2) NULL COMMENT 'Centimetros',
+    edad TINYINT UNSIGNED NULL COMMENT 'Anos; solo adultos para estimacion calorica',
+    sexo VARCHAR(12) NULL COMMENT 'femenino o masculino para ecuacion EER',
+    nivel_actividad VARCHAR(16) NULL COMMENT 'inactivo, bajo, activo o muy_activo',
 
     PRIMARY KEY (id_usuario),
     CONSTRAINT uq_usuario_correo UNIQUE (correo),
@@ -45,7 +48,10 @@ CREATE TABLE IF NOT EXISTS usuario (
         )
     ),
     CONSTRAINT ck_usuario_peso CHECK (peso_actual IS NULL OR peso_actual > 0),
-    CONSTRAINT ck_usuario_estatura CHECK (estatura IS NULL OR estatura > 0)
+    CONSTRAINT ck_usuario_estatura CHECK (estatura IS NULL OR estatura > 0),
+    CONSTRAINT ck_usuario_edad CHECK (edad IS NULL OR edad BETWEEN 18 AND 120),
+    CONSTRAINT ck_usuario_sexo CHECK (sexo IS NULL OR sexo IN ('femenino', 'masculino')),
+    CONSTRAINT ck_usuario_actividad CHECK (nivel_actividad IS NULL OR nivel_actividad IN ('inactivo', 'bajo', 'activo', 'muy_activo'))
 ) ENGINE = InnoDB;
 
 -- 2. Catalogo de alimentos. Los valores nutricionales desconocidos son NULL.

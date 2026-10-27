@@ -88,15 +88,36 @@ export function createApp() {
     const previous = await getProfile(res.locals.userId);
     if (!previous) throw new HttpError(401, 'La cuenta ya no está disponible.');
     const body = v.bodyObject(req.body);
-    const allowed = ['nombre', 'apellido', 'objetivo', 'peso_actual', 'estatura'];
+    const allowed = ['nombre', 'apellido', 'objetivo', 'peso_actual', 'estatura', 'edad', 'sexo', 'nivel_actividad'];
     if (!Object.keys(body).length || Object.keys(body).some(key => !allowed.includes(key))) throw new HttpError(400, 'El perfil contiene campos no permitidos.');
     const nombre = 'nombre' in body ? v.text(body.nombre, 'Nombre', 100) : previous.nombre;
     const apellido = 'apellido' in body ? v.optionalText(body.apellido, 'Apellido', 100) : previous.apellido;
     const objetivo = 'objetivo' in body ? v.goal(body.objetivo) : previous.objetivo;
     const peso = 'peso_actual' in body ? v.optionalNumber(body.peso_actual, 'Peso', 9999.99) : previous.peso_actual;
     const estatura = 'estatura' in body ? v.optionalNumber(body.estatura, 'Estatura', 999.99) : previous.estatura;
-    await pool.execute('UPDATE usuario SET nombre = ?, apellido = ?, objetivo = ?, peso_actual = ?, estatura = ? WHERE id_usuario = ?',
-      [nombre, apellido, objetivo, peso, estatura, res.locals.userId]);
+    let edad = previous.edad;
+    if ('edad' in body) {
+      const value = body.edad;
+      if (value == null || value === '') edad = null;
+      else if (typeof value !== 'number' || !Number.isInteger(value) || value < 19 || value > 120) throw new HttpError(400, 'La edad debe ser un número entero entre 19 y 120.');
+      else edad = value;
+    }
+    let sexo = previous.sexo;
+    if ('sexo' in body) {
+      const value = body.sexo;
+      if (value == null || value === '') sexo = null;
+      else if (value !== 'femenino' && value !== 'masculino') throw new HttpError(400, 'Selecciona una opción válida para el cálculo.');
+      else sexo = value;
+    }
+    let actividad = previous.nivel_actividad;
+    if ('nivel_actividad' in body) {
+      const value = body.nivel_actividad;
+      if (value == null || value === '') actividad = null;
+      else if (!['inactivo', 'bajo', 'activo', 'muy_activo'].includes(String(value))) throw new HttpError(400, 'Selecciona un nivel de actividad válido.');
+      else actividad = String(value);
+    }
+    await pool.execute('UPDATE usuario SET nombre = ?, apellido = ?, objetivo = ?, peso_actual = ?, estatura = ?, edad = ?, sexo = ?, nivel_actividad = ? WHERE id_usuario = ?',
+      [nombre, apellido, objetivo, peso, estatura, edad, sexo, actividad, res.locals.userId]);
     res.json(await getProfile(res.locals.userId));
   });
 

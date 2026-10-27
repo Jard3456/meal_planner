@@ -45,22 +45,23 @@ Para web, `CORS_ORIGINS` lista los orígenes admitidos separados por comas. Los 
 | `POST /api/auth/register` | Crea una cuenta con `nombre`, `apellido` opcional, `correo` y `password`. |
 | `POST /api/auth/login` | Autentica correo y contraseña. |
 | `GET /api/me` | Consulta el perfil de la cuenta autenticada. |
-| `PATCH /api/me` | Actualiza nombre, apellido, objetivo, peso y estatura de esa cuenta. |
+| `PATCH /api/me` | Actualiza nombre, apellido, objetivo, peso, estatura, edad, sexo y nivel de actividad de esa cuenta. |
 | `GET /api/foods?q=texto` | Consulta hasta 50 alimentos reales del catálogo. |
 | `POST /api/foods` | Agrega alimento y datos nutricionales al catálogo compartido. |
 | `GET /api/foods/search/usda?q=texto` | Busca alimentos y productos de marca en USDA FoodData Central (requiere sesión y `USDA_API_KEY`). |
 | `GET /api/foods/search/openfoodfacts?barcode=...` | Consulta un producto empacado por código de barras en Open Food Facts (requiere sesión). |
 | `POST /api/foods/resolve` | Guarda o recupera el producto externo para usarlo en planes e historial; no lo muestra en el catálogo local. |
-| `GET /api/dashboard?fecha=AAAA-MM-DD` | Resumen de calorías, consumos, comidas y recetas del usuario. |
+| `GET /api/dashboard?fecha=AAAA-MM-DD` | Resumen diario de calorías, macros registrados, consumos, comidas y recetas del usuario. |
 | `GET /api/plans?from=…&to=…` | Consulta planes y sus comidas/alimentos en el intervalo. |
 | `POST /api/plans`, `PUT/DELETE /api/plans/:id` | Crea, edita y elimina planes propios. |
+| `POST /api/plans/:id/generate-meals` | Genera desayuno, almuerzo y cena para cada día del intervalo indicado, sin duplicar comidas existentes. |
 | `POST /api/plans/:id/meals`, `PUT/DELETE /api/meals/:id` | Agrega, edita y elimina comidas dentro de planes propios. |
 | `POST /api/meals/:id/foods`, `DELETE /api/meal-foods/:id` | Agrega y quita alimentos planificados. |
 | `GET /api/consumptions?from=…&to=…` | Consulta el historial propio por fechas. |
 | `POST /api/consumptions`, `PUT/DELETE /api/consumptions/:id` | Registra, edita y elimina consumos propios. |
 | `GET/POST /api/recipes`, `PUT/DELETE /api/recipes/:id` | Administra recetas de la cuenta autenticada. |
 
-Las rutas `/me` requieren `Authorization: Bearer <token>`. El identificador se obtiene del token validado; el cliente no puede elegir el perfil de otro usuario. Las contraseñas se guardan como hashes bcrypt y no se devuelven. Peso y estatura se serializan como números o `null`. Las consultas reciben parámetros preparados.
+Las rutas `/me` requieren `Authorization: Bearer <token>`. El identificador se obtiene del token validado; el cliente no puede elegir el perfil de otro usuario. Las contraseñas se guardan como hashes bcrypt y no se devuelven. Peso, estatura, edad, sexo y nivel de actividad se serializan como números/texto o `null`. Al iniciar, el backend agrega las columnas de edad, sexo y actividad si faltan en una base existente. Las consultas reciben parámetros preparados.
 
 Inicio presenta el resumen diario; Planificador gestiona planes, comidas y alimentos; Historial gestiona consumos por día; Recetas administra la colección personal; Perfil gestiona la cuenta y sus datos. Crear un alimento requiere sesión y agrega una entrada al catálogo compartido. Calorías se calculan automáticamente solo cuando la cantidad está en gramos y existe energía por 100 g; para otras unidades se pueden indicar manualmente.
 

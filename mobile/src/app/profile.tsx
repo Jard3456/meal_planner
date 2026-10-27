@@ -4,7 +4,7 @@ import { MealScreen } from '@/components/meal-screen';
 import { AuthForm } from '@/components/auth-screen';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
-import type { FoodGoal, UserProfile } from '@/types/meal-planner';
+import type { ActivityLevel, BiologicalSex, FoodGoal, UserProfile } from '@/types/meal-planner';
 
 function Field({ label, ...props }: TextInputProps & { label: string }) {
   return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput {...props} accessibilityLabel={label} style={styles.input} placeholderTextColor={palette.muted} /></View>;
@@ -22,6 +22,12 @@ const goals: { value: FoodGoal | null; label: string }[] = [
   { value: 'aumentar_masa_muscular', label: 'Aumentar masa muscular' },
   { value: 'mantener_peso', label: 'Mantener mi peso' },
 ];
+const activities: { value: ActivityLevel; label: string; detail: string }[] = [
+  { value: 'inactivo', label: 'Inactivo', detail: 'Poco o ningún ejercicio' },
+  { value: 'bajo', label: 'Bajo', detail: 'Actividad ligera' },
+  { value: 'activo', label: 'Activo', detail: 'Ejercicio regular' },
+  { value: 'muy_activo', label: 'Muy activo', detail: 'Entrenamiento intenso' },
+];
 
 function ProfileEditor({ user }: { user: UserProfile }) {
   const { updateProfile, signOut } = useAuth();
@@ -30,6 +36,9 @@ function ProfileEditor({ user }: { user: UserProfile }) {
   const [objetivo, setObjetivo] = useState(user.objetivo);
   const [peso, setPeso] = useState(user.peso_actual?.toString() ?? '');
   const [estatura, setEstatura] = useState(user.estatura?.toString() ?? '');
+  const [edad, setEdad] = useState(user.edad?.toString() ?? '');
+  const [sexo, setSexo] = useState<BiologicalSex | null>(user.sexo);
+  const [actividad, setActividad] = useState<ActivityLevel | null>(user.nivel_actividad);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -40,7 +49,9 @@ function ProfileEditor({ user }: { user: UserProfile }) {
     try {
       const weight = toNumber(peso); const height = toNumber(estatura);
       if ((weight != null && !Number.isFinite(weight)) || (height != null && !Number.isFinite(height))) throw new Error('Revisa el peso y la estatura.');
-      await updateProfile({ nombre, apellido: apellido || null, objetivo, peso_actual: weight, estatura: height });
+      const age = edad.trim() ? Number(edad.trim()) : null;
+      if (age != null && (!Number.isInteger(age) || age < 19 || age > 120)) throw new Error('La edad debe ser un número entero entre 19 y 120.');
+      await updateProfile({ nombre, apellido: apellido || null, objetivo, peso_actual: weight, estatura: height, edad: age, sexo, nivel_actividad: actividad });
       setSaved(true);
     } catch (error) { setError(error instanceof Error ? error.message : 'No se pudo guardar.'); }
     finally { setBusy(false); }
@@ -62,6 +73,17 @@ function ProfileEditor({ user }: { user: UserProfile }) {
     </View>
     <Field label="Peso actual (kg, opcional)" value={peso} onChangeText={value => { setPeso(value); setSaved(false); }} keyboardType="decimal-pad" editable={!busy} />
     <Field label="Estatura (cm, opcional)" value={estatura} onChangeText={value => { setEstatura(value); setSaved(false); }} keyboardType="decimal-pad" editable={!busy} />
+    <Field label="Edad (años, 19 o más)" value={edad} onChangeText={value => { setEdad(value); setSaved(false); }} keyboardType="number-pad" editable={!busy} />
+    <Text style={styles.label}>Sexo usado para estimar calorías</Text>
+    <Text style={styles.hint}>La ecuación de referencia ofrece opciones femenino y masculino.</Text>
+    <View style={styles.goals}>
+      {([{ value: 'femenino', label: 'Femenino' }, { value: 'masculino', label: 'Masculino' }] as const).map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: sexo === option.value, disabled: busy }} disabled={busy} onPress={() => { setSexo(option.value); setSaved(false); }} style={[styles.chip, sexo === option.value && styles.selected]}><Text style={styles.chipText}>{option.label}</Text></Pressable>)}
+    </View>
+    <Text style={styles.label}>Nivel de actividad física</Text>
+    <View style={styles.activityList}>
+      {activities.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: actividad === option.value, disabled: busy }} disabled={busy} onPress={() => { setActividad(option.value); setSaved(false); }} style={[styles.activityOption, actividad === option.value && styles.selected]}><Text style={styles.chipText}>{option.label}</Text><Text style={styles.hint}>{option.detail}</Text></Pressable>)}
+    </View>
+    <Text style={styles.hint}>La estimación es orientativa para adultos; no aplica durante embarazo o lactancia.</Text>
     {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     {saved && <Text accessibilityLiveRegion="polite" style={styles.success}>Tu perfil se guardó correctamente.</Text>}
     <Action label="Guardar perfil" busy={busy} onPress={() => { void save(); }} />
@@ -92,4 +114,6 @@ const styles = StyleSheet.create({
   chip: { borderRadius: 12, padding: 12, borderColor: palette.border, borderWidth: 1 },
   selected: { backgroundColor: palette.greenSoft, borderColor: palette.green },
   chipText: { color: palette.ink, fontSize: 13 },
+  activityList: { gap: 8 },
+  activityOption: { borderRadius: 12, padding: 12, borderColor: palette.border, borderWidth: 1, gap: 5 },
 });

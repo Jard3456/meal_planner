@@ -3,20 +3,20 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeScreen } from '@/components/safe-screen';
 import { palette } from '@/constants/design';
 
-type Props = PropsWithChildren<{ title: string; subtitle: string }>;
+type Props = PropsWithChildren<{ title: string; subtitle: string; showBrand?: boolean; showHeading?: boolean }>;
 
-export function MealScreen({ title, subtitle, children }: Props) {
+export function MealScreen({ title, subtitle, children, showBrand = true, showHeading = true }: Props) {
   return (
     <SafeScreen>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-        <View style={styles.brandRow}>
+        {showBrand && <View style={styles.brandRow}>
           <Text style={styles.brand}>Meal Planner</Text>
           <View style={styles.brandMark}><Text style={styles.brandMarkText}>MP</Text></View>
-        </View>
-        <View style={styles.heading}>
+        </View>}
+        {showHeading && <View style={styles.heading}>
           <Text accessibilityRole="header" style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
+        </View>}
         {children}
       </ScrollView>
     </SafeScreen>
