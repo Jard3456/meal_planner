@@ -20,6 +20,8 @@ export const foodUnits: { value: FoodUnit; label: string }[] = [
 
 export const getFoods = (query = '', signal?: AbortSignal) => apiRequest<Food[]>(`/foods?q=${encodeURIComponent(query)}`, { signal });
 export const createFood = (data: Omit<Food, 'id_alimento'> & { proteinas?: number | null; carbohidratos?: number | null; grasas?: number | null }) => apiRequest<Food>('/foods', { method: 'POST', body: JSON.stringify(data) });
+export type NutritionLabelScan = { calorias_por_100g: number | null; proteinas: number | null; carbohidratos: number | null; grasas: number | null; serving_grams: number | null; conversion_applied: boolean; review_message: string };
+export const scanNutritionLabel = (image: FormData) => apiRequest<NutritionLabelScan>('/foods/scan-label', { method: 'POST', body: image }, 90000);
 export const getPlans = (from: string, to: string) => apiRequest<MealPlan[]>(`/plans?from=${from}&to=${to}`);
 export const createPlan = (data: Pick<MealPlan, 'nombre_plan' | 'fecha_inicio' | 'fecha_fin' | 'observaciones'>) => apiRequest<MealPlan>('/plans', { method: 'POST', body: JSON.stringify(data) });
 export const updatePlan = (id: number, data: Pick<MealPlan, 'nombre_plan' | 'fecha_inicio' | 'fecha_fin' | 'observaciones'>) => apiRequest<MealPlan>(`/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) });

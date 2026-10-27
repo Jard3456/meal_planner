@@ -26,6 +26,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Meal Planner necesita acceso a tus fotos para leer la tabla nutricional.",
+          "cameraPermission": "Meal Planner necesita usar la cámara para fotografiar la tabla nutricional.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#F7F8F2",

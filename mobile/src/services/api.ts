@@ -10,17 +10,17 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest<T>(path: `/${string}`, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(path: `/${string}`, options: RequestInit = {}, timeoutMs = 12000): Promise<T> {
   if (!env.apiUrl) throw new Error('La aplicación todavía no tiene una dirección de servicio configurada.');
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (options.body && !(typeof FormData !== 'undefined' && options.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (options.signal?.aborted) controller.abort();
   options.signal?.addEventListener('abort', abort, { once: true });
-  const timeout = setTimeout(abort, 12000);
+  const timeout = setTimeout(abort, timeoutMs);
   try {
     const response = await fetch(`${env.apiUrl}${path}`, { ...options, headers, signal: controller.signal });
     if (!response.ok) {

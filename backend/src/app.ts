@@ -1,4 +1,6 @@
-import express, { type ErrorRequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
+import multer from 'multer';
+import { readNutritionLabel } from './nutrition-label.js';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
@@ -21,6 +23,27 @@ export function createApp() {
     },
   }));
   app.use(express.json({ limit: '16kb' }));
+
+  const nutritionUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    fileFilter(_req, file, callback) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+        callback(new HttpError(400, 'Usa una foto JPG, PNG o WebP.'));
+        return;
+      }
+      callback(null, true);
+    },
+  });
+  const uploadNutritionImage: RequestHandler = (req, res, next) => {
+    nutritionUpload.single('image')(req, res, error => {
+      if (error instanceof multer.MulterError) {
+        next(new HttpError(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400, error.code === 'LIMIT_FILE_SIZE' ? 'La foto no puede superar 5 MB.' : 'No se pudo recibir la foto.'));
+        return;
+      }
+      next(error);
+    });
+  };
 
   app.get('/api/health', async (_req, res) => {
     await pool.query('SELECT 1');
@@ -74,6 +97,11 @@ export function createApp() {
     await pool.execute('UPDATE usuario SET nombre = ?, apellido = ?, objetivo = ?, peso_actual = ?, estatura = ? WHERE id_usuario = ?',
       [nombre, apellido, objetivo, peso, estatura, res.locals.userId]);
     res.json(await getProfile(res.locals.userId));
+  });
+
+  app.post('/api/foods/scan-label', requireUser, uploadNutritionImage, async (req, res) => {
+    if (!req.file) throw new HttpError(400, 'Selecciona una foto de la tabla nutricional.');
+    res.json(await readNutritionLabel(req.file.buffer));
   });
 
   app.get('/api/foods', async (req, res) => {

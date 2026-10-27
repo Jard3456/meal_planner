@@ -75,3 +75,7 @@ npm test
 `npm test` ejecuta validaciones sin modificar la base configurada. La prueba de integración se omite salvo que se definan `MP_TEST_DB=1` y un `DB_NAME` con prefijo `meal_planner_qa_`. La integración debe ejecutarse en una instancia aislada con el esquema creado; utiliza y elimina únicamente sus propias cuentas y alimentos de prueba.
 
 El esquema de esta instalación quedó accesible y `npm run db:check` confirmó las siete tablas de MySQL. Los campos de alimentos se comparten entre usuarios; los planes, consumos y recetas se aíslan por cuenta.
+
+## Lectura de tablas nutricionales
+
+En el catálogo de alimentos puedes tomar una foto o elegirla de la galería para extraer calorías y macronutrientes. El OCR se ejecuta en la API con Tesseract.js y los idiomas español e inglés. La primera lectura descarga los datos de idioma, así que el servidor necesita acceso a Internet en ese momento. Las imágenes se procesan en memoria y no se guardan. Se aceptan JPG, PNG y WebP de hasta 5 MB. Revisa y corrige siempre los valores detectados antes de guardar.

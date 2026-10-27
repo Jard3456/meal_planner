@@ -77,3 +77,7 @@ La validación cubre tipos, configuración y exportación. La prueba en tu telé
 ## Integración con MySQL
 
 Se añadieron la API Node.js, autenticación, perfil persistente, catálogo y almacenamiento de sesión. Backend y app pasan TypeScript; la app pasa ESLint y las 20 comprobaciones de Expo Doctor. Diez pruebas verificaron las operaciones de API y persistencia en una instancia MySQL 8.0.41 temporal aislada. No se utilizaron los registros de tu servidor para esas pruebas.
+
+## Leer una tabla nutricional
+
+Al agregar un alimento desde el catálogo, usa **Tomar foto** o **Elegir foto**. La API lee la etiqueta en español e inglés, completa los valores detectados y, si reconoce el tamaño de porción en gramos, los convierte a valores por 100 g. Revisa los campos y completa el nombre del alimento antes de guardar. La foto se envía a la API configurada y se procesa en memoria; el servidor necesita Internet para descargar los datos OCR la primera vez.

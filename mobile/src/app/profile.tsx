@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { MealScreen } from '@/components/meal-screen';
+import { AuthForm } from '@/components/auth-screen';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
 import type { FoodGoal, UserProfile } from '@/types/meal-planner';
@@ -13,37 +14,6 @@ function Action({ label, busy, onPress }: { label: string; busy: boolean; onPres
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onPress} style={({ pressed }) => [styles.button, (pressed || busy) && { opacity: 0.6 }]}>
     {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonLabel}>{label}</Text>}
   </Pressable>;
-}
-
-function SignInForm() {
-  const { signIn, signUp } = useAuth();
-  const [register, setRegister] = useState(false);
-  const [nombre, setNombre] = useState('');
-  const [apellido, setApellido] = useState('');
-  const [correo, setCorreo] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit() {
-    setBusy(true); setError('');
-    try {
-      if (register) await signUp({ nombre, apellido, correo, password });
-      else await signIn({ correo, password });
-    } catch (error) { setError(error instanceof Error ? error.message : 'No se pudo completar la operación.'); }
-    finally { setBusy(false); }
-  }
-
-  return <View style={styles.card}>
-    <Text accessibilityRole="header" style={styles.cardTitle}>{register ? 'Crea tu cuenta' : 'Te damos la bienvenida'}</Text>
-    {register && <><Field label="Nombre" value={nombre} onChangeText={setNombre} maxLength={100} autoComplete="given-name" editable={!busy} /><Field label="Apellido (opcional)" value={apellido} onChangeText={setApellido} maxLength={100} autoComplete="family-name" editable={!busy} /></>}
-    <Field label="Correo electrónico" value={correo} onChangeText={setCorreo} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" maxLength={254} editable={!busy} />
-    <Field label="Contraseña" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoCorrect={false} textContentType={register ? 'newPassword' : 'password'} maxLength={72} editable={!busy} />
-    {register && <Text style={styles.hint}>Utiliza al menos 8 caracteres para tu contraseña.</Text>}
-    {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-    <Action label={register ? 'Crear cuenta' : 'Iniciar sesión'} busy={busy} onPress={() => { void submit(); }} />
-    <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setRegister(!register); setError(''); }} style={styles.textButton}><Text style={styles.link}>{register ? 'Ya tengo una cuenta' : 'Crear una cuenta'}</Text></Pressable>
-  </View>;
 }
 
 const goals: { value: FoodGoal | null; label: string }[] = [
@@ -103,7 +73,7 @@ export default function ProfileScreen() {
   const { user, loading } = useAuth();
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <MealScreen title="El punto de partida eres tú." subtitle="Tu cuenta, tu perfil y tus objetivos alimenticios.">
-      {loading ? <ActivityIndicator accessibilityLabel="Recuperando tu sesión" color={palette.green} /> : user ? <ProfileEditor key={user.id_usuario} user={user} /> : <SignInForm />}
+      {loading ? <ActivityIndicator accessibilityLabel="Recuperando tu sesión" color={palette.green} /> : user ? <ProfileEditor key={user.id_usuario} user={user} /> : <AuthForm />}
     </MealScreen>
   </KeyboardAvoidingView>;
 }
