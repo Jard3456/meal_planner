@@ -1,5 +1,6 @@
 import { Link } from 'expo-router';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps, type PropsWithChildren } from 'react-native';
+import type { PropsWithChildren } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
 

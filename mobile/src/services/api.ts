@@ -12,10 +12,16 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(path: `/${string}`, options: RequestInit = {}, timeoutMs = 12000): Promise<T> {
   if (!env.apiUrl) throw new Error('La aplicación todavía no tiene una dirección de servicio configurada.');
-  const headers = new Headers(options.headers);
-  headers.set('Accept', 'application/json');
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  if (options.body && !(typeof FormData !== 'undefined' && options.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const multipartUpload = path === '/foods/scan-label';
+  const headers: HeadersInit = multipartUpload
+    ? { Accept: 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }
+    : (() => {
+      const value = new Headers(options.headers);
+      value.set('Accept', 'application/json');
+      if (accessToken) value.set('Authorization', `Bearer ${accessToken}`);
+      if (options.body && !(typeof FormData !== 'undefined' && options.body instanceof FormData) && !value.has('Content-Type')) value.set('Content-Type', 'application/json');
+      return value;
+    })();
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (options.signal?.aborted) controller.abort();
@@ -33,6 +39,13 @@ export async function apiRequest<T>(path: `/${string}`, options: RequestInit = {
     return await response.json() as T;
   } catch (error) {
     if (error instanceof ApiError || options.signal?.aborted) throw error;
+    if (controller.signal.aborted) throw new Error(path === '/foods/scan-label'
+      ? 'La lectura de la foto tardó demasiado. Intenta de nuevo con una foto más pequeña y nítida.'
+      : 'La solicitud tardó demasiado. Intenta de nuevo.');
+    if (multipartUpload) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Falló el envío de la foto (${detail}). Comprueba que el teléfono y la computadora estén en la misma red Wi-Fi.`);
+    }
     throw new Error('No se pudo conectar. Revisa tu conexión e intenta de nuevo.');
   } finally {
     clearTimeout(timeout);

@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { pool } from './db.js';
+import { config } from './config.js';
 import { requireUser } from './auth.js';
 import { HttpError } from './errors.js';
 import * as v from './validation.js';
+import { getOffProduct, getUsdaFood, type ExternalFood } from './food-sources.js';
 
 type Body = Record<string, unknown>;
 const router = Router();
@@ -14,6 +16,11 @@ const idParam = (value: string | string[]) => {
   const id = Number(value);
   if (!Number.isSafeInteger(id) || id < 1) throw new HttpError(400, 'El identificador no es válido.');
   return id;
+};
+const todayInAppTimeZone = () => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: config.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const get = (type: 'year' | 'month' | 'day') => parts.find(part => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
 };
 const dateValue = (value: unknown, label: string) => {
   const date = v.text(value, label, 10);
@@ -201,7 +208,7 @@ router.delete('/meal-foods/:id', requireUser, async (req, res) => {
 });
 
 router.get('/consumptions', requireUser, async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInAppTimeZone();
   const from = dateValue(req.query.from ?? today, 'Fecha inicial');
   const to = dateValue(req.query.to ?? today, 'Fecha final');
   if (to < from || new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime() > 366 * 86400000) throw new HttpError(400, 'El intervalo debe ser válido y no superar un año.');
@@ -213,6 +220,7 @@ router.post('/consumptions', requireUser, async (req, res) => {
   const body = v.bodyObject(req.body);
   const foodId = positiveId(body.id_alimento, 'Alimento');
   const date = dateValue(body.fecha, 'Fecha');
+  if (date !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes registrar alimentos para el día actual.');
   const amount = positiveAmount(body.cantidad);
   const unit = unitValue(body.unidad_medida);
   let calories = optionalCalories(body.calorias_totales);
@@ -230,6 +238,7 @@ router.put('/consumptions/:id', requireUser, async (req, res) => {
   const body = v.bodyObject(req.body);
   const foodId = positiveId(body.id_alimento, 'Alimento');
   const date = dateValue(body.fecha, 'Fecha');
+  if (date !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes registrar alimentos para el día actual.');
   const amount = positiveAmount(body.cantidad);
   const unit = unitValue(body.unidad_medida);
   let calories = optionalCalories(body.calorias_totales);
@@ -292,6 +301,44 @@ router.post('/foods', requireUser, async (req, res) => {
   const fats = nutrition(body.grasas, 'Grasas', 100);
   const [result] = await pool.execute<ResultSetHeader>('INSERT INTO alimento (nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas) VALUES (?, ?, ?, ?, ?, ?)', [name, category, calories, protein, carbs, fats]);
   res.status(201).json({ id_alimento: result.insertId, nombre: name, categoria: category, calorias_por_100g: calories, proteinas: protein, carbohidratos: carbs, grasas: fats });
+});
+
+router.get('/foods/search/openfoodfacts', requireUser, async (req, res) => {
+  if (typeof req.query.barcode !== 'string' || !/^\d{8,14}$/.test(req.query.barcode)) throw new HttpError(400, 'Ingresa un código de barras válido de 8 a 14 dígitos.');
+  const product = await getOffProduct(req.query.barcode);
+  if (!product) throw new HttpError(404, 'No encontramos ese producto en Open Food Facts. Puedes completar sus datos manualmente.');
+  res.json(product);
+});
+
+router.post('/foods/import', requireUser, async (req, res) => {
+  const body = v.bodyObject(req.body);
+  if (body.source !== 'usda' && body.source !== 'openfoodfacts') throw new HttpError(400, 'Selecciona una fuente nutricional válida.');
+  const sourceId = v.text(body.source_id, 'Identificador', 32);
+  let food: ExternalFood | null;
+  if (body.source === 'usda') {
+    if (!/^\d{1,12}$/.test(sourceId)) throw new HttpError(400, 'El identificador USDA no es válido.');
+    food = await getUsdaFood(sourceId);
+  } else {
+    if (!/^\d{8,14}$/.test(sourceId)) throw new HttpError(400, 'El código de barras no es válido.');
+    food = await getOffProduct(sourceId);
+  }
+  if (!food) throw new HttpError(404, 'El alimento ya no está disponible en la fuente externa.');
+
+  const [existing] = await pool.execute<RowDataPacket[]>(
+    `SELECT id_alimento, nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas
+     FROM alimento WHERE nombre = ? AND categoria <=> ? AND calorias_por_100g <=> ? AND proteinas <=> ? AND carbohidratos <=> ? AND grasas <=> ? LIMIT 1`,
+    [food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas],
+  );
+  if (existing[0]) {
+    const row = existing[0];
+    res.json({ id_alimento: Number(row.id_alimento), nombre: String(row.nombre), categoria: row.categoria == null ? null : String(row.categoria), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g), proteinas: row.proteinas == null ? null : Number(row.proteinas), carbohidratos: row.carbohidratos == null ? null : Number(row.carbohidratos), grasas: row.grasas == null ? null : Number(row.grasas) });
+    return;
+  }
+  const [result] = await pool.execute<ResultSetHeader>(
+    'INSERT INTO alimento (nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas) VALUES (?, ?, ?, ?, ?, ?)',
+    [food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas],
+  );
+  res.status(201).json({ id_alimento: result.insertId, nombre: food.nombre, categoria: food.categoria, calorias_por_100g: food.calorias_por_100g, proteinas: food.proteinas, carbohidratos: food.carbohidratos, grasas: food.grasas });
 });
 
 export default router;

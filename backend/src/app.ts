@@ -10,6 +10,7 @@ import { createToken, requireUser } from './auth.js';
 import { getProfile } from './users.js';
 import { HttpError } from './errors.js';
 import * as v from './validation.js';
+import { searchUsda } from './food-sources.js';
 import mealPlannerRouter from './meal-planner.js';
 
 export function createApp() {
@@ -114,6 +115,13 @@ export function createApp() {
        FROM alimento WHERE nombre LIKE ? ESCAPE '!' ORDER BY nombre, id_alimento LIMIT 50`, [pattern],
     );
     res.json(rows);
+  });
+
+  app.get('/api/foods/search/usda', requireUser, async (req, res) => {
+    if (req.query.q != null && typeof req.query.q !== 'string') throw new HttpError(400, 'La búsqueda no es válida.');
+    const query = String(req.query.q ?? '').trim();
+    if (query.length < 2 || query.length > 100) throw new HttpError(400, 'Escribe entre 2 y 100 caracteres para buscar.');
+    res.json(await searchUsda(query));
   });
 
   app.use('/api', mealPlannerRouter);

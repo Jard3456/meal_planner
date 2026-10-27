@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '700', color: palette.ink },
   cardBody: { color: palette.muted, fontSize: 14, lineHeight: 21 },
   summary: { padding: 22, borderRadius: 22, gap: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
-  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, sectionTitle: { color: palette.ink, fontSize: 20, fontWeight: '700' }, refresh: { color: palette.green, fontWeight: '700', padding: 8 },
+  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, refresh: { color: palette.green, fontWeight: '700', padding: 8 },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, stat: { flexGrow: 1, flexBasis: '28%', padding: 14, borderRadius: 14, backgroundColor: palette.greenSoft, gap: 4 }, statNumber: { color: palette.green, fontSize: 21, fontWeight: '800' }, statLabel: { color: palette.muted, fontSize: 12 },
   todayGroup: { gap: 8, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 14 }, todayGroupTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' }, todayLine: { color: palette.muted, fontSize: 14, lineHeight: 21 },
   quickLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, quickButton: { borderRadius: 12, backgroundColor: palette.green, padding: 12 }, quickText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },

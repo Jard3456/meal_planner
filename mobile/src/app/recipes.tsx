@@ -36,7 +36,7 @@ export default function RecipesScreen() {
   async function save() {
     setBusy(true); setError('');
     try {
-      const data = { nombre: name, descripcion: description || null, instrucciones, imagen_url: imageUrl || null };
+      const data = { nombre: name, descripcion: description || null, instrucciones: instructions, imagen_url: imageUrl || null };
       if (editing) await updateRecipe(editing, data); else await createRecipe(data);
       reset(); setReload(value => value + 1);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la receta.'); }

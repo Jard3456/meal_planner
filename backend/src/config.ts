@@ -7,6 +7,7 @@ function port(name: string, fallback: number) {
 export const config = {
   host: process.env.HOST ?? '0.0.0.0',
   port: port('PORT', 3000),
+  timeZone: process.env.APP_TIME_ZONE ?? 'America/Guatemala',
   db: {
     host: process.env.DB_HOST ?? '127.0.0.1',
     port: port('DB_PORT', 3306),
@@ -15,5 +16,6 @@ export const config = {
     database: process.env.DB_NAME ?? 'meal_planner',
   },
   jwtSecret: process.env.JWT_SECRET ?? '',
+  usdaApiKey: process.env.USDA_API_KEY ?? '',
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:8081,http://127.0.0.1:8081').split(',').map(value => value.trim()).filter(Boolean),
 };

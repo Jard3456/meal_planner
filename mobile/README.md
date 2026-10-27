@@ -81,3 +81,4 @@ Se añadieron la API Node.js, autenticación, perfil persistente, catálogo y al
 ## Leer una tabla nutricional
 
 Al agregar un alimento desde el catálogo, usa **Tomar foto** o **Elegir foto**. La API lee la etiqueta en español e inglés, completa los valores detectados y, si reconoce el tamaño de porción en gramos, los convierte a valores por 100 g. Revisa los campos y completa el nombre del alimento antes de guardar. La foto se envía a la API configurada y se procesa en memoria; el servidor necesita Internet para descargar los datos OCR la primera vez.
+En **Historial** solo puedes registrar o editar consumos del día actual. Los días anteriores permanecen disponibles para consulta y eliminación de registros.

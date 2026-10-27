@@ -5,10 +5,11 @@ API Node.js + TypeScript + Express + MySQL2 que conecta la app Expo con MySQL. L
 ## Configurar y conectar
 
 1. Completa `DB_HOST`, `DB_PORT`, `DB_USER` y `DB_PASSWORD` en `.env`. Si el archivo no existe, copia `.env.example` y genera también `JWT_SECRET` (al menos 32 caracteres aleatorios privados).
-2. Desde `backend/`, ejecuta `npm ci` si no están instaladas las dependencias.
-3. Si todavía no creaste las tablas, ejecuta `npm run db:init`. Se utiliza el script `../database/meal_planner_mysql.sql`; conserva tablas y registros, y recrea sus triggers. No adapta estructuras antiguas diferentes.
-4. Ejecuta `npm run db:check` para comprobar credenciales, base y las siete tablas.
-5. Inicia la API con `npm run dev`.
+2. Para habilitar la búsqueda USDA, crea una clave gratuita de FoodData Central y configúrala como `USDA_API_KEY` en `backend/.env`. La clave solo se usa en el servidor y no debe agregarse a la app móvil ni al repositorio. Open Food Facts no requiere clave para consultas de lectura.
+3. Desde `backend/`, ejecuta `npm ci` si no están instaladas las dependencias.
+4. Si todavía no creaste las tablas, ejecuta `npm run db:init`. Se utiliza el script `../database/meal_planner_mysql.sql`; conserva tablas y registros, y recrea sus triggers. No adapta estructuras antiguas diferentes.
+5. Ejecuta `npm run db:check` para comprobar credenciales, base y las siete tablas.
+6. Inicia la API con `npm run dev`.
 
 ```powershell
 cd backend
@@ -47,6 +48,9 @@ Para web, `CORS_ORIGINS` lista los orígenes admitidos separados por comas. Los 
 | `PATCH /api/me` | Actualiza nombre, apellido, objetivo, peso y estatura de esa cuenta. |
 | `GET /api/foods?q=texto` | Consulta hasta 50 alimentos reales del catálogo. |
 | `POST /api/foods` | Agrega alimento y datos nutricionales al catálogo compartido. |
+| `GET /api/foods/search/usda?q=texto` | Busca alimentos y productos de marca en USDA FoodData Central (requiere sesión y `USDA_API_KEY`). |
+| `GET /api/foods/search/openfoodfacts?barcode=...` | Consulta un producto empacado por código de barras en Open Food Facts (requiere sesión). |
+| `POST /api/foods/import` | Vuelve a consultar la fuente y agrega al catálogo el resultado seleccionado, evitando duplicados idénticos. |
 | `GET /api/dashboard?fecha=AAAA-MM-DD` | Resumen de calorías, consumos, comidas y recetas del usuario. |
 | `GET /api/plans?from=…&to=…` | Consulta planes y sus comidas/alimentos en el intervalo. |
 | `POST /api/plans`, `PUT/DELETE /api/plans/:id` | Crea, edita y elimina planes propios. |
@@ -79,3 +83,6 @@ El esquema de esta instalación quedó accesible y `npm run db:check` confirmó 
 ## Lectura de tablas nutricionales
 
 En el catálogo de alimentos puedes tomar una foto o elegirla de la galería para extraer calorías y macronutrientes. El OCR se ejecuta en la API con Tesseract.js y los idiomas español e inglés. La primera lectura descarga los datos de idioma, así que el servidor necesita acceso a Internet en ese momento. Las imágenes se procesan en memoria y no se guardan. Se aceptan JPG, PNG y WebP de hasta 5 MB. Revisa y corrige siempre los valores detectados antes de guardar.
+
+El catálogo permite buscar en USDA FoodData Central por nombre y consultar Open Food Facts con el código de barras escrito en el campo. Al elegir un resultado, la API consulta de nuevo la fuente y guarda los nutrientes disponibles por 100 g en el catálogo local. La pantalla mantiene el ingreso manual y muestra la fuente de cada resultado. Los datos de Open Food Facts son colaborativos y pueden estar incompletos; su base se publica bajo ODbL, que requiere atribución y compartir bases derivadas bajo las condiciones de esa licencia. Revisa sus [condiciones de reutilización](https://openfoodfacts.github.io/documentation/docs/Product-Opener/api/tutorials/license-be-on-the-legal-side/) antes de distribuir una versión que incluya datos importados.
+Los consumos nuevos y sus modificaciones se aceptan únicamente para la fecha actual. La zona horaria se configura con `APP_TIME_ZONE` y por defecto es `America/Guatemala`.
