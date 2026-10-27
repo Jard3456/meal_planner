@@ -10,10 +10,20 @@ export type ExternalFood = {
   proteinas: number | null;
   carbohidratos: number | null;
   grasas: number | null;
+  cantidad_sugerida_g: number | null;
 };
 
 type Nutrient = { name?: string; nutrientName?: string; amount?: number; value?: number; unitName?: string; nutrient?: { name?: string; unitName?: string } };
-type FdcFood = { fdcId?: number; description?: string; dataType?: string; foodNutrients?: Nutrient[]; labelNutrients?: Record<string, { value?: number }> };
+type FdcFood = {
+  fdcId?: number;
+  description?: string;
+  dataType?: string;
+  servingSize?: number;
+  servingSizeUnit?: string;
+  foodPortions?: { gramWeight?: number; portionDescription?: string }[];
+  foodNutrients?: Nutrient[];
+  labelNutrients?: Record<string, { value?: number }>;
+};
 
 function numeric(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value * 1000) / 1000 : null;
@@ -29,9 +39,13 @@ function nutrient(food: FdcFood, exactName: string): number | null {
 
 function fromUsda(food: FdcFood): ExternalFood | null {
   if (!food.fdcId || !food.description?.trim()) return null;
+  const servingUnit = food.servingSizeUnit?.trim().toLowerCase();
+  const servingSize = ['g', 'gram', 'grams'].includes(servingUnit ?? '') ? numeric(food.servingSize) : null;
+  const portionSize = numeric(food.foodPortions?.find(portion => numeric(portion.gramWeight) != null)?.gramWeight);
   return {
     source: 'usda', source_id: String(food.fdcId), nombre: food.description.trim(),
     categoria: food.dataType === 'Branded' ? 'Producto de marca (USDA)' : 'Alimento (USDA)',
+    cantidad_sugerida_g: servingSize ?? portionSize,
     calorias_por_100g: nutrient(food, 'energy'),
     proteinas: nutrient(food, 'protein'),
     carbohidratos: nutrient(food, 'carbohydrate, by difference'),
@@ -68,7 +82,7 @@ export async function searchUsda(query: string): Promise<ExternalFood[]> {
 export async function getOffProduct(barcode: string): Promise<ExternalFood | null> {
   const data = await requestJson(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,status,product`, {
     headers: { 'User-Agent': 'MealPlanner/1.0 (nutrition lookup)' },
-  }) as { status?: number; product?: { code?: string; product_name?: string; product_name_en?: string; brands?: string; categories?: string; nutriments?: Record<string, unknown> } } | null;
+  }) as { status?: number; product?: { code?: string; product_name?: string; product_name_en?: string; brands?: string; categories?: string; serving_quantity?: number; nutriments?: Record<string, unknown> } } | null;
   const product = data?.product;
   const name = product?.product_name?.trim() || product?.product_name_en?.trim();
   if (data?.status !== 1 || !product || !name) return null;
@@ -78,6 +92,7 @@ export async function getOffProduct(barcode: string): Promise<ExternalFood | nul
   return {
     source: 'openfoodfacts', source_id: product.code ?? barcode, nombre: brandedName.slice(0, 150),
     categoria: `Open Food Facts · ${productCategory || 'producto empacado'}`.slice(0, 80),
+    cantidad_sugerida_g: null,
     calorias_por_100g: numeric(nutrition['energy-kcal_100g']),
     proteinas: numeric(nutrition.proteins_100g),
     carbohidratos: numeric(nutrition.carbohydrates_100g),

@@ -34,6 +34,15 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Meal Planner necesita usar la cámara para escanear códigos de barras.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#F7F8F2",

@@ -58,9 +58,12 @@ CREATE TABLE IF NOT EXISTS alimento (
     proteinas DECIMAL(7,3) NULL,
     carbohidratos DECIMAL(7,3) NULL,
     grasas DECIMAL(7,3) NULL,
+    fuente_externa VARCHAR(20) NULL,
+    id_fuente_externa VARCHAR(32) NULL,
 
     PRIMARY KEY (id_alimento),
     INDEX idx_alimento_nombre (nombre),
+    UNIQUE KEY uq_alimento_fuente (fuente_externa, id_fuente_externa),
     CONSTRAINT ck_alimento_nombre CHECK (CHAR_LENGTH(TRIM(nombre)) > 0),
     CONSTRAINT ck_alimento_calorias CHECK (
         calorias_por_100g IS NULL OR calorias_por_100g >= 0
@@ -117,7 +120,15 @@ CREATE TABLE IF NOT EXISTS comida (
 CREATE TABLE IF NOT EXISTS detalle_comida (
     id_detalle INT UNSIGNED NOT NULL AUTO_INCREMENT,
     id_comida INT UNSIGNED NOT NULL,
-    id_alimento INT UNSIGNED NOT NULL,
+    id_alimento INT UNSIGNED NULL,
+    nombre_alimento VARCHAR(150) NULL,
+    categoria_alimento VARCHAR(80) NULL,
+    calorias_por_100g DECIMAL(9,3) NULL,
+    proteinas DECIMAL(7,3) NULL,
+    carbohidratos DECIMAL(7,3) NULL,
+    grasas DECIMAL(7,3) NULL,
+    fuente_externa VARCHAR(20) NULL,
+    id_fuente_externa VARCHAR(32) NULL,
     cantidad DECIMAL(10,3) NOT NULL,
     unidad_medida VARCHAR(10) NOT NULL,
 
@@ -129,6 +140,7 @@ CREATE TABLE IF NOT EXISTS detalle_comida (
     CONSTRAINT fk_detalle_alimento FOREIGN KEY (id_alimento)
         REFERENCES alimento (id_alimento) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_detalle_cantidad CHECK (cantidad > 0),
+    CONSTRAINT ck_detalle_food_ref CHECK (id_alimento IS NOT NULL OR nombre_alimento IS NOT NULL),
     CONSTRAINT ck_detalle_unidad CHECK (
         unidad_medida IN ('g', 'ml', 'porcion', 'unidad')
     )
@@ -140,7 +152,15 @@ CREATE TABLE IF NOT EXISTS detalle_comida (
 CREATE TABLE IF NOT EXISTS consumo_alimento (
     id_consumo INT UNSIGNED NOT NULL AUTO_INCREMENT,
     id_usuario INT UNSIGNED NOT NULL,
-    id_alimento INT UNSIGNED NOT NULL,
+    id_alimento INT UNSIGNED NULL,
+    nombre_alimento VARCHAR(150) NULL,
+    categoria_alimento VARCHAR(80) NULL,
+    calorias_por_100g DECIMAL(9,3) NULL,
+    proteinas DECIMAL(7,3) NULL,
+    carbohidratos DECIMAL(7,3) NULL,
+    grasas DECIMAL(7,3) NULL,
+    fuente_externa VARCHAR(20) NULL,
+    id_fuente_externa VARCHAR(32) NULL,
     fecha DATE NOT NULL,
     cantidad DECIMAL(10,3) NOT NULL,
     unidad_medida VARCHAR(10) NOT NULL,
@@ -154,6 +174,7 @@ CREATE TABLE IF NOT EXISTS consumo_alimento (
     CONSTRAINT fk_consumo_alimento FOREIGN KEY (id_alimento)
         REFERENCES alimento (id_alimento) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_consumo_cantidad CHECK (cantidad > 0),
+    CONSTRAINT ck_consumo_food_ref CHECK (id_alimento IS NOT NULL OR nombre_alimento IS NOT NULL),
     CONSTRAINT ck_consumo_unidad CHECK (
         unidad_medida IN ('g', 'ml', 'porcion', 'unidad')
     ),

@@ -5,7 +5,7 @@ import { FoodCatalog } from '@/components/food-catalog';
 import { MealScreen } from '@/components/meal-screen';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
-import { addMealFood, createMeal, createPlan, deleteMeal, deleteMealFood, deletePlan, foodUnits, getPlans, mealTypes, updateMeal, updatePlan, type Food, type MealPlan } from '@/services/meal-planner';
+import { addMealFood, createMeal, createPlan, deleteMeal, deleteMealFood, deletePlan, foodReference, foodUnits, getPlans, mealTypes, updateMeal, updatePlan, type FoodSelection, type MealPlan } from '@/services/meal-planner';
 import type { FoodUnit, MealType } from '@/types/meal-planner';
 
 function dateText(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
@@ -31,7 +31,7 @@ export default function PlannerScreen() {
   const [editNotes, setEditNotes] = useState('');
   const [editingMeal, setEditingMeal] = useState<{ id: number; type: MealType; date: string; time: string } | null>(null);
   const [activeMeal, setActiveMeal] = useState<number | null>(null);
-  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  const [selectedFood, setSelectedFood] = useState<FoodSelection | null>(null);
   const [amount, setAmount] = useState('100');
   const [unit, setUnit] = useState<FoodUnit>('g');
   const [mealKind, setMealKind] = useState<MealType>('desayuno');
@@ -72,9 +72,13 @@ export default function PlannerScreen() {
     const numericAmount = Number(amount.replace(',', '.'));
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) { setError('Ingresa una cantidad mayor que cero.'); return; }
     setBusy(true); setError('');
-    try { await addMealFood(activeMeal, { id_alimento: selectedFood.id_alimento, cantidad: numericAmount, unidad_medida: unit }); setSelectedFood(null); setReload(n => n + 1); }
+    try { await addMealFood(activeMeal, { ...foodReference(selectedFood), cantidad: numericAmount, unidad_medida: unit }); setSelectedFood(null); setReload(n => n + 1); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo agregar el alimento.'); }
     finally { setBusy(false); }
+  }
+  function selectFood(food: FoodSelection) {
+    setSelectedFood(food);
+    if (food.cantidad_sugerida_g != null) { setAmount(String(food.cantidad_sugerida_g)); setUnit('g'); }
   }
   async function saveMeal() {
     if (!editingMeal) return;
@@ -96,7 +100,7 @@ export default function PlannerScreen() {
         <Text style={styles.label}>Agregar una comida</Text><ChoiceChips options={mealTypes} value={mealKind} onChange={setMealKind} /><FormButton label="Crear comida" secondary onPress={() => { void addMeal(plan); }} busy={busy} /><FormButton label="Eliminar plan" danger onPress={() => confirmDeletePlan(plan)} />
         </>}
       </View>)}
-      {activeMeal != null && <View style={styles.card}><View style={styles.row}><Text style={styles.sectionTitle}>Agregar alimentos a la comida</Text><Pressable accessibilityRole="button" onPress={() => { setActiveMeal(null); setSelectedFood(null); }}><Text style={styles.link}>Cerrar</Text></Pressable></View><FoodCatalog selectable selectedId={selectedFood?.id_alimento} onSelect={setSelectedFood} allowCreate /><FormField label="Cantidad" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" /><ChoiceChips options={foodUnits} value={unit} onChange={setUnit} />{selectedFood && <FormButton label={`Agregar ${selectedFood.nombre}`} onPress={() => { void attachFood(); }} busy={busy} />}</View>}
+      {activeMeal != null && <View style={styles.card}><View style={styles.row}><Text style={styles.sectionTitle}>Agregar alimentos a la comida</Text><Pressable accessibilityRole="button" onPress={() => { setActiveMeal(null); setSelectedFood(null); }}><Text style={styles.link}>Cerrar</Text></Pressable></View><FoodCatalog selectable selectedId={selectedFood && 'id_alimento' in selectedFood ? selectedFood.id_alimento ?? null : null} selectedName={selectedFood?.nombre} onSelect={selectFood} allowCreate /><FormField label="Cantidad" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />{selectedFood?.cantidad_sugerida_g != null && <Text style={styles.body}>Porción sugerida: {selectedFood.cantidad_sugerida_g} g. Puedes modificarla.</Text>}<ChoiceChips options={foodUnits} value={unit} onChange={setUnit} />{selectedFood && <FormButton label={`Agregar ${selectedFood.nombre}`} onPress={() => { void attachFood(); }} busy={busy} />}</View>}
     </AccountGate>
   </MealScreen>;
 }

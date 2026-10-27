@@ -112,7 +112,7 @@ export function createApp() {
     const pattern = `%${query.replace(/[!%_]/g, '!$&')}%`;
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT id_alimento, nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas
-       FROM alimento WHERE nombre LIKE ? ESCAPE '!' ORDER BY nombre, id_alimento LIMIT 50`, [pattern],
+       FROM alimento WHERE fuente_externa IS NULL AND nombre LIKE ? ESCAPE '!' ORDER BY nombre, id_alimento LIMIT 50`, [pattern],
     );
     res.json(rows);
   });

@@ -8,6 +8,7 @@ import * as v from './validation.js';
 import { getOffProduct, getUsdaFood, type ExternalFood } from './food-sources.js';
 
 type Body = Record<string, unknown>;
+type FoodSnapshot = { nombre: string; categoria: string | null; calorias_por_100g: number | null; proteinas: number | null; carbohidratos: number | null; grasas: number | null; source: 'usda' | 'openfoodfacts'; source_id: string };
 const router = Router();
 const mealTypes = ['desayuno', 'almuerzo', 'cena', 'snack'] as const;
 const units = ['g', 'ml', 'porcion', 'unidad'] as const;
@@ -62,6 +63,35 @@ const optionalLongText = (value: unknown, label: string, max: number) => {
   if (typeof value !== 'string' || value.trim().length > max) throw new HttpError(400, `${label}: el texto es demasiado largo.`);
   return value.trim();
 };
+const snapshotFields = (value: unknown): FoodSnapshot => {
+  const body = v.bodyObject(value);
+  if (body.source !== 'usda' && body.source !== 'openfoodfacts') throw new HttpError(400, 'La fuente del alimento no es válida.');
+  const sourceId = v.text(body.source_id, 'Identificador del alimento', 32);
+  if (body.source === 'usda' && !/^\d{1,12}$/.test(sourceId)) throw new HttpError(400, 'El identificador USDA no es válido.');
+  if (body.source === 'openfoodfacts' && !/^\d{8,14}$/.test(sourceId)) throw new HttpError(400, 'El código de barras no es válido.');
+  const nutrition = (item: unknown, label: string, maximum: number) => {
+    if (item == null || item === '') return null;
+    if (typeof item !== 'number' || !Number.isFinite(item) || item < 0 || item > maximum) throw new HttpError(400, `${label}: ingresa un valor válido.`);
+    return Math.round(item * 1000) / 1000;
+  };
+  return {
+    nombre: v.text(body.nombre, 'Nombre del alimento', 150),
+    categoria: optionalLongText(body.categoria, 'Categoría', 80),
+    calorias_por_100g: nutrition(body.calorias_por_100g, 'Calorías por 100 g', 999999),
+    proteinas: nutrition(body.proteinas, 'Proteínas', 100),
+    carbohidratos: nutrition(body.carbohidratos, 'Carbohidratos', 100),
+    grasas: nutrition(body.grasas, 'Grasas', 100),
+    source: body.source,
+    source_id: sourceId,
+  };
+};
+const foodReference = (body: Body) => {
+  if (body.alimento_snapshot != null) {
+    if (body.id_alimento != null) throw new HttpError(400, 'Elige un alimento del catálogo o un alimento externo, no ambos.');
+    return { id: null, snapshot: snapshotFields(body.alimento_snapshot) };
+  }
+  return { id: positiveId(body.id_alimento, 'Alimento'), snapshot: null };
+};
 const planFields = (body: Body) => {
   const name = v.text(body.nombre_plan, 'Nombre del plan', 150);
   const from = dateValue(body.fecha_inicio, 'Fecha inicial');
@@ -99,15 +129,16 @@ async function getPlans(userId: number, from: string, to: string) {
   );
   const mealIds = meals.map(meal => Number(meal.id_comida));
   const details = mealIds.length ? (await pool.execute<RowDataPacket[]>(
-    `SELECT d.id_detalle, d.id_comida, d.id_alimento, a.nombre, d.cantidad, d.unidad_medida,
-      a.calorias_por_100g FROM detalle_comida d JOIN alimento a ON a.id_alimento = d.id_alimento
+    `SELECT d.id_detalle, d.id_comida, d.id_alimento, COALESCE(d.nombre_alimento, a.nombre) AS nombre,
+      d.cantidad, d.unidad_medida, COALESCE(d.calorias_por_100g, a.calorias_por_100g) AS calorias_por_100g
+     FROM detalle_comida d LEFT JOIN alimento a ON a.id_alimento = d.id_alimento
      WHERE d.id_comida IN (${mealIds.map(() => '?').join(',')}) ORDER BY d.id_detalle`, mealIds,
   ))[0] : [];
   const detailByMeal = new Map<number, object[]>();
   for (const row of details) {
     const id = Number(row.id_comida);
     const value = detailByMeal.get(id) ?? [];
-    value.push({ id_detalle: Number(row.id_detalle), id_alimento: Number(row.id_alimento), nombre: String(row.nombre), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g) });
+    value.push({ id_detalle: Number(row.id_detalle), id_alimento: row.id_alimento == null ? null : Number(row.id_alimento), nombre: String(row.nombre), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g) });
     detailByMeal.set(id, value);
   }
   const mealsByPlan = new Map<number, object[]>();
@@ -191,11 +222,15 @@ router.delete('/meals/:id', requireUser, async (req, res) => {
 router.post('/meals/:id/foods', requireUser, async (req, res) => {
   const mealId = idParam(req.params.id);
   const body = v.bodyObject(req.body);
-  const foodId = positiveId(body.id_alimento, 'Alimento');
+  const { id: foodId, snapshot } = foodReference(body);
   const amount = positiveAmount(body.cantidad);
   const unit = unitValue(body.unidad_medida);
   await ensureOwned('comida', 'id_comida', mealId, res.locals.userId);
-  const [result] = await pool.execute<ResultSetHeader>('INSERT INTO detalle_comida (id_comida, id_alimento, cantidad, unidad_medida) VALUES (?, ?, ?, ?)', [mealId, foodId, amount, unit]);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO detalle_comida (id_comida, id_alimento, nombre_alimento, categoria_alimento, calorias_por_100g, proteinas, carbohidratos, grasas, fuente_externa, id_fuente_externa, cantidad, unidad_medida)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [mealId, foodId, snapshot?.nombre ?? null, snapshot?.categoria ?? null, snapshot?.calorias_por_100g ?? null, snapshot?.proteinas ?? null, snapshot?.carbohidratos ?? null, snapshot?.grasas ?? null, snapshot?.source ?? null, snapshot?.source_id ?? null, amount, unit],
+  );
   res.status(201).json({ id_detalle: result.insertId, id_comida: mealId, id_alimento: foodId, cantidad: amount, unidad_medida: unit });
 });
 
@@ -212,45 +247,60 @@ router.get('/consumptions', requireUser, async (req, res) => {
   const from = dateValue(req.query.from ?? today, 'Fecha inicial');
   const to = dateValue(req.query.to ?? today, 'Fecha final');
   if (to < from || new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime() > 366 * 86400000) throw new HttpError(400, 'El intervalo debe ser válido y no superar un año.');
-  const [rows] = await pool.execute<RowDataPacket[]>(`SELECT c.id_consumo, c.id_alimento, a.nombre AS alimento, DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha, c.cantidad, c.unidad_medida, c.calorias_totales FROM consumo_alimento c JOIN alimento a ON a.id_alimento = c.id_alimento WHERE c.id_usuario = ? AND c.fecha BETWEEN ? AND ? ORDER BY c.fecha DESC, c.id_consumo DESC`, [res.locals.userId, from, to]);
-  res.json(rows.map(row => ({ id_consumo: Number(row.id_consumo), id_alimento: Number(row.id_alimento), alimento: String(row.alimento), fecha: String(row.fecha), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_totales: row.calorias_totales == null ? null : Number(row.calorias_totales) })));
+  const [rows] = await pool.execute<RowDataPacket[]>(`SELECT c.id_consumo, c.id_alimento, COALESCE(c.nombre_alimento, a.nombre) AS alimento, DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha, c.cantidad, c.unidad_medida, c.calorias_totales, c.categoria_alimento, c.calorias_por_100g, c.proteinas, c.carbohidratos, c.grasas, c.fuente_externa, c.id_fuente_externa FROM consumo_alimento c LEFT JOIN alimento a ON a.id_alimento = c.id_alimento WHERE c.id_usuario = ? AND c.fecha BETWEEN ? AND ? ORDER BY c.fecha DESC, c.id_consumo DESC`, [res.locals.userId, from, to]);
+  res.json(rows.map(row => ({ id_consumo: Number(row.id_consumo), id_alimento: row.id_alimento == null ? null : Number(row.id_alimento), alimento: String(row.alimento), fecha: String(row.fecha), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_totales: row.calorias_totales == null ? null : Number(row.calorias_totales), food_snapshot: row.fuente_externa == null ? null : { nombre: String(row.alimento), categoria: row.categoria_alimento == null ? null : String(row.categoria_alimento), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g), proteinas: row.proteinas == null ? null : Number(row.proteinas), carbohidratos: row.carbohidratos == null ? null : Number(row.carbohidratos), grasas: row.grasas == null ? null : Number(row.grasas), source: String(row.fuente_externa), source_id: String(row.id_fuente_externa) } })));
 });
 
 router.post('/consumptions', requireUser, async (req, res) => {
   const body = v.bodyObject(req.body);
-  const foodId = positiveId(body.id_alimento, 'Alimento');
+  const { id: foodId, snapshot } = foodReference(body);
   const date = dateValue(body.fecha, 'Fecha');
   if (date !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes registrar alimentos para el día actual.');
   const amount = positiveAmount(body.cantidad);
   const unit = unitValue(body.unidad_medida);
   let calories = optionalCalories(body.calorias_totales);
   if (calories == null && unit === 'g') {
-    const [foods] = await pool.execute<RowDataPacket[]>('SELECT calorias_por_100g FROM alimento WHERE id_alimento = ?', [foodId]);
-    if (!foods.length) throw new HttpError(404, 'No encontramos ese alimento.');
-    if (foods[0].calorias_por_100g != null) calories = Math.round(Number(foods[0].calorias_por_100g) * amount) / 100;
+    let caloriesPer100g = snapshot?.calorias_por_100g ?? null;
+    if (foodId != null) {
+      const [foods] = await pool.execute<RowDataPacket[]>('SELECT calorias_por_100g FROM alimento WHERE id_alimento = ?', [foodId]);
+      if (!foods.length) throw new HttpError(404, 'No encontramos ese alimento.');
+      caloriesPer100g = foods[0].calorias_por_100g == null ? null : Number(foods[0].calorias_por_100g);
+    }
+    if (caloriesPer100g != null) calories = Math.round(caloriesPer100g * amount) / 100;
   }
-  const [result] = await pool.execute<ResultSetHeader>('INSERT INTO consumo_alimento (id_usuario, id_alimento, fecha, cantidad, unidad_medida, calorias_totales) VALUES (?, ?, ?, ?, ?, ?)', [res.locals.userId, foodId, date, amount, unit, calories]);
-  res.status(201).json({ id_consumo: result.insertId, id_alimento: foodId, fecha: date, cantidad: amount, unidad_medida: unit, calorias_totales: calories });
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO consumo_alimento (id_usuario, id_alimento, nombre_alimento, categoria_alimento, calorias_por_100g, proteinas, carbohidratos, grasas, fuente_externa, id_fuente_externa, fecha, cantidad, unidad_medida, calorias_totales)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [res.locals.userId, foodId, snapshot?.nombre ?? null, snapshot?.categoria ?? null, snapshot?.calorias_por_100g ?? null, snapshot?.proteinas ?? null, snapshot?.carbohidratos ?? null, snapshot?.grasas ?? null, snapshot?.source ?? null, snapshot?.source_id ?? null, date, amount, unit, calories],
+  );
+  res.status(201).json({ id_consumo: result.insertId, id_alimento: foodId, alimento: snapshot?.nombre, fecha: date, cantidad: amount, unidad_medida: unit, calorias_totales: calories });
 });
 
 router.put('/consumptions/:id', requireUser, async (req, res) => {
   const id = idParam(req.params.id);
   const body = v.bodyObject(req.body);
-  const foodId = positiveId(body.id_alimento, 'Alimento');
+  const { id: foodId, snapshot } = foodReference(body);
   const date = dateValue(body.fecha, 'Fecha');
   if (date !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes registrar alimentos para el día actual.');
   const amount = positiveAmount(body.cantidad);
   const unit = unitValue(body.unidad_medida);
   let calories = optionalCalories(body.calorias_totales);
   if (calories == null && unit === 'g') {
-    const [foods] = await pool.execute<RowDataPacket[]>('SELECT calorias_por_100g FROM alimento WHERE id_alimento = ?', [foodId]);
-    if (!foods.length) throw new HttpError(404, 'No encontramos ese alimento.');
-    if (foods[0].calorias_por_100g != null) calories = Math.round(Number(foods[0].calorias_por_100g) * amount) / 100;
+    let caloriesPer100g = snapshot?.calorias_por_100g ?? null;
+    if (foodId != null) {
+      const [foods] = await pool.execute<RowDataPacket[]>('SELECT calorias_por_100g FROM alimento WHERE id_alimento = ?', [foodId]);
+      if (!foods.length) throw new HttpError(404, 'No encontramos ese alimento.');
+      caloriesPer100g = foods[0].calorias_por_100g == null ? null : Number(foods[0].calorias_por_100g);
+    }
+    if (caloriesPer100g != null) calories = Math.round(caloriesPer100g * amount) / 100;
   }
   const [existing] = await pool.execute<RowDataPacket[]>('SELECT id_consumo FROM consumo_alimento WHERE id_consumo = ? AND id_usuario = ?', [id, res.locals.userId]);
   if (!existing.length) throw new HttpError(404, 'No encontramos ese consumo en tu cuenta.');
-  await pool.execute('UPDATE consumo_alimento SET id_alimento = ?, fecha = ?, cantidad = ?, unidad_medida = ?, calorias_totales = ? WHERE id_consumo = ? AND id_usuario = ?', [foodId, date, amount, unit, calories, id, res.locals.userId]);
-  res.json({ id_consumo: id, id_alimento: foodId, fecha: date, cantidad: amount, unidad_medida: unit, calorias_totales: calories });
+  await pool.execute(
+    `UPDATE consumo_alimento SET id_alimento = ?, nombre_alimento = ?, categoria_alimento = ?, calorias_por_100g = ?, proteinas = ?, carbohidratos = ?, grasas = ?, fuente_externa = ?, id_fuente_externa = ?, fecha = ?, cantidad = ?, unidad_medida = ?, calorias_totales = ? WHERE id_consumo = ? AND id_usuario = ?`,
+    [foodId, snapshot?.nombre ?? null, snapshot?.categoria ?? null, snapshot?.calorias_por_100g ?? null, snapshot?.proteinas ?? null, snapshot?.carbohidratos ?? null, snapshot?.grasas ?? null, snapshot?.source ?? null, snapshot?.source_id ?? null, date, amount, unit, calories, id, res.locals.userId],
+  );
+  res.json({ id_consumo: id, id_alimento: foodId, alimento: snapshot?.nombre, fecha: date, cantidad: amount, unidad_medida: unit, calorias_totales: calories });
 });
 
 router.delete('/consumptions/:id', requireUser, async (req, res) => {
@@ -306,11 +356,11 @@ router.post('/foods', requireUser, async (req, res) => {
 router.get('/foods/search/openfoodfacts', requireUser, async (req, res) => {
   if (typeof req.query.barcode !== 'string' || !/^\d{8,14}$/.test(req.query.barcode)) throw new HttpError(400, 'Ingresa un código de barras válido de 8 a 14 dígitos.');
   const product = await getOffProduct(req.query.barcode);
-  if (!product) throw new HttpError(404, 'No encontramos ese producto en Open Food Facts. Puedes completar sus datos manualmente.');
+  if (!product) throw new HttpError(404, 'No se encontró el producto. Ingresa sus datos manualmente.');
   res.json(product);
 });
 
-router.post('/foods/import', requireUser, async (req, res) => {
+router.post('/foods/resolve', requireUser, async (req, res) => {
   const body = v.bodyObject(req.body);
   if (body.source !== 'usda' && body.source !== 'openfoodfacts') throw new HttpError(400, 'Selecciona una fuente nutricional válida.');
   const sourceId = v.text(body.source_id, 'Identificador', 32);
@@ -324,21 +374,30 @@ router.post('/foods/import', requireUser, async (req, res) => {
   }
   if (!food) throw new HttpError(404, 'El alimento ya no está disponible en la fuente externa.');
 
+  const toStoredFood = (id: number) => ({ ...food, id_alimento: id });
   const [existing] = await pool.execute<RowDataPacket[]>(
-    `SELECT id_alimento, nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas
-     FROM alimento WHERE nombre = ? AND categoria <=> ? AND calorias_por_100g <=> ? AND proteinas <=> ? AND carbohidratos <=> ? AND grasas <=> ? LIMIT 1`,
-    [food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas],
+    `SELECT id_alimento FROM alimento WHERE fuente_externa = ? AND id_fuente_externa = ? LIMIT 1`,
+    [body.source, sourceId],
   );
-  if (existing[0]) {
-    const row = existing[0];
-    res.json({ id_alimento: Number(row.id_alimento), nombre: String(row.nombre), categoria: row.categoria == null ? null : String(row.categoria), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g), proteinas: row.proteinas == null ? null : Number(row.proteinas), carbohidratos: row.carbohidratos == null ? null : Number(row.carbohidratos), grasas: row.grasas == null ? null : Number(row.grasas) });
+  if (existing[0]) { res.json(toStoredFood(Number(existing[0].id_alimento))); return; }
+
+  const [legacy] = await pool.execute<RowDataPacket[]>(
+    `SELECT id_alimento FROM alimento WHERE fuente_externa = ? AND id_fuente_externa IS NULL AND nombre = ? AND categoria <=> ? AND calorias_por_100g <=> ? AND proteinas <=> ? AND carbohidratos <=> ? AND grasas <=> ? LIMIT 1`,
+    [body.source, food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas],
+  );
+  if (legacy[0]) {
+    const id = Number(legacy[0].id_alimento);
+    await pool.execute('UPDATE alimento SET id_fuente_externa = ? WHERE id_alimento = ?', [sourceId, id]);
+    res.json(toStoredFood(id));
     return;
   }
-  const [result] = await pool.execute<ResultSetHeader>(
-    'INSERT INTO alimento (nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas) VALUES (?, ?, ?, ?, ?, ?)',
-    [food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas],
+
+  const [created] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO alimento (nombre, categoria, calorias_por_100g, proteinas, carbohidratos, grasas, fuente_externa, id_fuente_externa)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [food.nombre, food.categoria, food.calorias_por_100g, food.proteinas, food.carbohidratos, food.grasas, body.source, sourceId],
   );
-  res.status(201).json({ id_alimento: result.insertId, nombre: food.nombre, categoria: food.categoria, calorias_por_100g: food.calorias_por_100g, proteinas: food.proteinas, carbohidratos: food.carbohidratos, grasas: food.grasas });
+  res.status(201).json(toStoredFood(created.insertId));
 });
 
 export default router;
