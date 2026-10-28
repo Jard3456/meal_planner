@@ -65,6 +65,8 @@ Las rutas `/me` requieren `Authorization: Bearer <token>`. El identificador se o
 
 Inicio presenta el resumen diario; Planificador gestiona planes, comidas y alimentos; Historial gestiona consumos por día; Recetas administra la colección personal; Perfil gestiona la cuenta y sus datos. Crear un alimento requiere sesión y agrega una entrada al catálogo compartido. Calorías se calculan automáticamente solo cuando la cantidad está en gramos y existe energía por 100 g; para otras unidades se pueden indicar manualmente.
 
+La pantalla Recetas muestra ideas locales según el tipo de comida seleccionado y ordena sus porciones y macros aproximados según las metas del perfil y el consumo del día. No realiza consultas a servicios externos para sugerencias. Las recetas guardadas manualmente siguen perteneciendo a la cuenta del usuario.
+
 La sesión JWT dura ocho horas. Se guarda en SecureStore en Android/iOS y en `sessionStorage` de la pestaña web. Cerrar sesión elimina la credencial local; el token ya emitido conserva su vigencia hasta vencer. No se implementaron renovación ni revocación remota. Esta configuración corresponde al desarrollo local.
 
 ## Compilar y probar

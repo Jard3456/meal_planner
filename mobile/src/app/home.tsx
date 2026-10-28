@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccountGate, FormNotice } from '@/components/form-controls';
 import { CalorieGoalChart } from '@/components/calorie-goal-chart';
 import { MealScreen } from '@/components/meal-screen';
 import { palette } from '@/constants/design';
 import { useAuth } from '@/context/auth-context';
-import { getConsumptions, getDashboard, getPlans, type Consumption, type Dashboard, type MealPlan } from '@/services/meal-planner';
+import { consumePendingDashboardDate } from '@/services/dashboard-refresh';
+import { foodUnits, getConsumptions, getDashboard, getPlans, type Consumption, type Dashboard, type MealPlan } from '@/services/meal-planner';
 
 const weekdays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -18,6 +20,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
+  const [focusRefresh, setFocusRefresh] = useState(0);
   const [calendarMonth, setCalendarMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const displayName = [user?.nombre, user?.apellido].filter(Boolean).join(' ') || 'Usuario';
   const initial = displayName.charAt(0).toLocaleUpperCase('es');
@@ -26,7 +29,17 @@ export default function HomeScreen() {
   const firstOffset = (new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() + 6) % 7;
   const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
   const calendarDays: (number | null)[] = [...Array.from({ length: firstOffset }, () => null), ...Array.from({ length: daysInMonth }, (_, index) => index + 1)];
-  const canGoNext = dateKey(calendarMonth) < `${today.slice(0, 7)}-01`;
+
+  useFocusEffect(useCallback(() => {
+    const pendingDate = consumePendingDashboardDate();
+    if (!pendingDate) return;
+    const timer = setTimeout(() => {
+      setSelectedDate(pendingDate);
+      setCalendarMonth(new Date(`${pendingDate}T12:00:00`));
+      setFocusRefresh(value => value + 1);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []));
 
   useEffect(() => {
     if (!user) return;
@@ -39,7 +52,7 @@ export default function HomeScreen() {
         .finally(() => { if (active) setLoading(false); });
     }, 0);
     return () => { active = false; clearTimeout(timer); };
-  }, [user, selectedDate]);
+  }, [user, selectedDate, focusRefresh]);
 
   return (
     <MealScreen title="" subtitle="" showBrand={false} showHeading={false}>
@@ -56,7 +69,7 @@ export default function HomeScreen() {
               <View style={styles.monthControls}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Mes anterior" onPress={() => setCalendarMonth(month => new Date(month.getFullYear(), month.getMonth() - 1, 1))} style={styles.monthButton}><Text style={styles.monthArrow}>{'\u2039'}</Text></Pressable>
                 <Text style={styles.monthTitle}>{monthTitle.charAt(0).toLocaleUpperCase('es') + monthTitle.slice(1)}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel="Mes siguiente" accessibilityState={{ disabled: !canGoNext }} disabled={!canGoNext} onPress={() => setCalendarMonth(month => new Date(month.getFullYear(), month.getMonth() + 1, 1))} style={[styles.monthButton, !canGoNext && styles.monthButtonDisabled]}><Text style={styles.monthArrow}>{'\u203a'}</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Mes siguiente" onPress={() => setCalendarMonth(month => new Date(month.getFullYear(), month.getMonth() + 1, 1))} style={styles.monthButton}><Text style={styles.monthArrow}>{'\u203a'}</Text></Pressable>
               </View>
               {selectedDate !== today && <Pressable accessibilityRole="button" onPress={() => { setSelectedDate(today); setCalendarMonth(new Date()); }}><Text style={styles.todayLink}>Hoy</Text></Pressable>}
             </View>
@@ -67,9 +80,8 @@ export default function HomeScreen() {
                 const key = dateKey(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day));
                 const isSelected = key === selectedDate;
                 const isToday = key === today;
-                const isFuture = key > today;
                 const dateLabel = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day).toLocaleDateString('es-GT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                return <Pressable key={key} accessibilityRole="button" accessibilityLabel={dateLabel} accessibilityState={{ selected: isSelected, disabled: isFuture }} disabled={isFuture} onPress={() => setSelectedDate(key)} style={[styles.calendarCell, styles.dayCell, isToday && styles.todayCell, isSelected && styles.selectedCell, isFuture && styles.futureCell]}><Text style={[styles.dayText, isSelected && styles.selectedDayText, isFuture && styles.futureDayText]}>{day}</Text></Pressable>;
+                return <Pressable key={key} accessibilityRole="button" accessibilityLabel={dateLabel} accessibilityState={{ selected: isSelected }} onPress={() => setSelectedDate(key)} style={[styles.calendarCell, styles.dayCell, isToday && styles.todayCell, isSelected && styles.selectedCell]}><Text style={[styles.dayText, isSelected && styles.selectedDayText]}>{day}</Text></Pressable>;
               })}
             </View>
           </View>
@@ -80,7 +92,13 @@ export default function HomeScreen() {
               <View style={styles.stat}><Text style={styles.statNumber}>{summary?.comidas ?? 0}</Text><Text style={styles.statLabel}>comidas planeadas</Text></View>
               <View style={styles.stat}><Text style={styles.statNumber}>{summary?.recetas ?? 0}</Text><Text style={styles.statLabel}>recetas guardadas</Text></View>
             </View>
-            {plans.length ? plans.map(plan => <View key={plan.id_plan} style={styles.todayGroup}><Text style={styles.todayGroupTitle}>{plan.nombre_plan}</Text>{plan.comidas.filter(meal => meal.fecha === selectedDate).map(meal => <Text key={meal.id_comida} style={styles.todayLine}>{'\u2022'} {meal.tipo_comida}{meal.hora ? `, ${meal.hora}` : ''}: {meal.alimentos.map(food => food.nombre).join(', ') || 'sin alimentos agregados'}</Text>)}</View>) : <Text style={styles.cardBody}>{`No hay comidas planificadas para ${selectedDate === today ? 'hoy' : 'esta fecha'}.`}</Text>}
+            {plans.length ? plans.map(plan => <View key={plan.id_plan} style={styles.todayGroup}>
+              <Text style={styles.todayGroupTitle}>{plan.nombre_plan}</Text>
+              {plan.comidas.filter(meal => meal.fecha === selectedDate).map(meal => <View key={meal.id_comida} style={styles.homeMeal}>
+                <Text style={styles.homeMealTitle}>{meal.tipo_comida}{meal.hora ? ', ' + meal.hora : ''}</Text>
+                {meal.alimentos.length ? meal.alimentos.map(food => <Text key={food.id_detalle} style={styles.todayLine}>{'\u2022'} {food.nombre} · recomendado: {food.cantidad} {foodUnits.find(item => item.value === food.unidad_medida)?.label}{food.cantidad_consumida == null ? '' : ' · consumido: ' + food.cantidad_consumida + ' ' + foodUnits.find(item => item.value === (food.unidad_consumida ?? food.unidad_medida))?.label}</Text>) : <Text style={styles.todayLine}>Aún no hay alimentos agregados a esta comida.</Text>}
+              </View>)}
+            </View>) : <Text style={styles.cardBody}>{'No hay comidas planificadas para ' + (selectedDate === today ? 'hoy' : selectedDate) + '.'}</Text>}
             {consumptions.length > 0 && <View style={styles.todayGroup}><Text style={styles.todayGroupTitle}>Consumo registrado</Text>{consumptions.map(item => <Text key={item.id_consumo} style={styles.todayLine}>{'\u2022'} {item.alimento} {'\u00b7'} {item.cantidad} {item.unidad_medida}{item.calorias_totales == null ? '' : ` \u00b7 ${item.calorias_totales} kcal`}</Text>)}</View>}
           </>}
         </View>
@@ -120,6 +138,8 @@ const styles = StyleSheet.create({
   statLabel: { color: palette.muted, fontSize: 12 },
   todayGroup: { gap: 8, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 14 },
   todayGroupTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' },
+  homeMeal: { gap: 4, paddingVertical: 5 },
+  homeMealTitle: { color: palette.ink, fontSize: 14, fontWeight: '700', textTransform: 'capitalize' },
   todayLine: { color: palette.muted, fontSize: 14, lineHeight: 21 },
   cardBody: { color: palette.muted, fontSize: 14, lineHeight: 21 },
 });

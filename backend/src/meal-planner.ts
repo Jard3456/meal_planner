@@ -8,7 +8,7 @@ import * as v from './validation.js';
 import { getOffProduct, getUsdaFood, type ExternalFood } from './food-sources.js';
 
 type Body = Record<string, unknown>;
-type FoodSnapshot = { nombre: string; categoria: string | null; calorias_por_100g: number | null; proteinas: number | null; carbohidratos: number | null; grasas: number | null; source: 'usda' | 'openfoodfacts'; source_id: string };
+type FoodSnapshot = { nombre: string; categoria: string | null; calorias_por_100g: number | null; proteinas: number | null; carbohidratos: number | null; grasas: number | null; source: 'usda' | 'openfoodfacts' | 'recipe'; source_id: string };
 const router = Router();
 const mealTypes = ['desayuno', 'almuerzo', 'cena', 'snack'] as const;
 const units = ['g', 'ml', 'porcion', 'unidad'] as const;
@@ -53,6 +53,36 @@ const positiveAmount = (value: unknown) => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 9999999) throw new HttpError(400, 'La cantidad debe ser un número positivo.');
   return Math.round(value * 1000) / 1000;
 };
+const consumedAmount = (value: unknown) => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 9999999) throw new HttpError(400, 'La cantidad consumida debe ser cero o un número positivo.');
+  return Math.round(value * 1000) / 1000;
+};
+const referencePortionOptions = {
+  proteinas: { alimento: 'pollo cocido', unidad: 'g', macroPorUnidad: 0.31, kcalPorUnidad: 1.65 },
+  carbohidratos: { alimento: 'arroz cocido', unidad: 'g', macroPorUnidad: 0.28, kcalPorUnidad: 1.3 },
+  grasas: { alimento: 'aceite de oliva', unidad: 'cda', macroPorUnidad: 14, kcalPorUnidad: 119 },
+} as const;
+type MacroKey = keyof typeof referencePortionOptions;
+function completedReferencePortions(value: unknown) {
+  if (value == null) return null;
+  const body = v.bodyObject(value);
+  const result: Partial<Record<MacroKey, { alimento: string; cantidad: number; unidad: string; macro_gramos: number; calorias: number }>> = {};
+  for (const key of Object.keys(body)) {
+    if (!Object.hasOwn(referencePortionOptions, key)) throw new HttpError(400, 'La porción de referencia no es válida.');
+    const macro = key as MacroKey;
+    const option = referencePortionOptions[macro];
+    const item = v.bodyObject(body[macro]);
+    const amount = positiveAmount(item.cantidad);
+    if (item.unidad !== option.unidad) throw new HttpError(400, 'La unidad de la porción de referencia no es válida.');
+    result[macro] = { alimento: option.alimento, cantidad: amount, unidad: option.unidad, macro_gramos: Math.round(amount * option.macroPorUnidad * 100) / 100, calorias: Math.round(amount * option.kcalPorUnidad * 100) / 100 };
+  }
+  return Object.keys(result).length ? result : null;
+}
+function parseCompletedReferencePortions(value: unknown) {
+  if (typeof value !== 'string' || !value) return null;
+  try { return completedReferencePortions(JSON.parse(value)); }
+  catch { return null; }
+}
 const optionalCalories = (value: unknown) => {
   if (value == null || value === '') return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 999999999) throw new HttpError(400, 'Las calorías deben ser cero o un número positivo.');
@@ -125,12 +155,15 @@ async function getPlans(userId: number, from: string, to: string) {
   const marks = planIds.map(() => '?').join(',');
   const [meals] = await pool.execute<RowDataPacket[]>(
     `SELECT id_comida, id_plan, tipo_comida, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha,
-      TIME_FORMAT(hora, '%H:%i') AS hora FROM comida WHERE id_plan IN (${marks}) AND fecha BETWEEN ? AND ? ORDER BY fecha, hora, id_comida`, [...planIds, from, to],
+      TIME_FORMAT(hora, '%H:%i') AS hora, referencias_completadas FROM comida WHERE id_plan IN (${marks}) AND fecha BETWEEN ? AND ? ORDER BY fecha, hora, id_comida`, [...planIds, from, to],
   );
   const mealIds = meals.map(meal => Number(meal.id_comida));
   const details = mealIds.length ? (await pool.execute<RowDataPacket[]>(
     `SELECT d.id_detalle, d.id_comida, d.id_alimento, COALESCE(d.nombre_alimento, a.nombre) AS nombre,
-      d.cantidad, d.unidad_medida, COALESCE(d.calorias_por_100g, a.calorias_por_100g) AS calorias_por_100g
+      d.cantidad, d.unidad_medida, d.cantidad_consumida, d.unidad_consumida,
+      COALESCE(d.calorias_por_100g, a.calorias_por_100g) AS calorias_por_100g,
+      COALESCE(d.proteinas, a.proteinas) AS proteinas, COALESCE(d.carbohidratos, a.carbohidratos) AS carbohidratos,
+      COALESCE(d.grasas, a.grasas) AS grasas
      FROM detalle_comida d LEFT JOIN alimento a ON a.id_alimento = d.id_alimento
      WHERE d.id_comida IN (${mealIds.map(() => '?').join(',')}) ORDER BY d.id_detalle`, mealIds,
   ))[0] : [];
@@ -138,14 +171,14 @@ async function getPlans(userId: number, from: string, to: string) {
   for (const row of details) {
     const id = Number(row.id_comida);
     const value = detailByMeal.get(id) ?? [];
-    value.push({ id_detalle: Number(row.id_detalle), id_alimento: row.id_alimento == null ? null : Number(row.id_alimento), nombre: String(row.nombre), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g) });
+    value.push({ id_detalle: Number(row.id_detalle), id_alimento: row.id_alimento == null ? null : Number(row.id_alimento), nombre: String(row.nombre), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), cantidad_consumida: row.cantidad_consumida == null ? null : Number(row.cantidad_consumida), unidad_consumida: row.unidad_consumida == null ? null : String(row.unidad_consumida), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g), proteinas: row.proteinas == null ? null : Number(row.proteinas), carbohidratos: row.carbohidratos == null ? null : Number(row.carbohidratos), grasas: row.grasas == null ? null : Number(row.grasas) });
     detailByMeal.set(id, value);
   }
   const mealsByPlan = new Map<number, object[]>();
   for (const meal of meals) {
     const planId = Number(meal.id_plan);
     const value = mealsByPlan.get(planId) ?? [];
-    value.push({ id_comida: Number(meal.id_comida), tipo_comida: String(meal.tipo_comida), fecha: String(meal.fecha), hora: meal.hora == null ? null : String(meal.hora), alimentos: detailByMeal.get(Number(meal.id_comida)) ?? [] });
+    value.push({ id_comida: Number(meal.id_comida), tipo_comida: String(meal.tipo_comida), fecha: String(meal.fecha), hora: meal.hora == null ? null : String(meal.hora), referencias_completadas: parseCompletedReferencePortions(meal.referencias_completadas), alimentos: detailByMeal.get(Number(meal.id_comida)) ?? [] });
     mealsByPlan.set(planId, value);
   }
   return plans.map(plan => ({ id_plan: Number(plan.id_plan), nombre_plan: String(plan.nombre_plan), fecha_inicio: String(plan.fecha_inicio), fecha_fin: String(plan.fecha_fin), observaciones: plan.observaciones == null ? null : String(plan.observaciones), comidas: mealsByPlan.get(Number(plan.id_plan)) ?? [] }));
@@ -157,16 +190,28 @@ router.get('/dashboard', requireUser, async (req, res) => {
   const [[calories]] = await pool.execute<RowDataPacket[]>('SELECT COALESCE(SUM(calorias_totales), 0) AS calorias, COUNT(*) AS consumos FROM consumo_alimento WHERE id_usuario = ? AND fecha = ?', [userId, date]);
   const [[macros]] = await pool.execute<RowDataPacket[]>(
     `SELECT
-       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.proteinas, a.proteinas) IS NOT NULL THEN COALESCE(c.proteinas, a.proteinas) * c.cantidad / 100 ELSE 0 END), 0) AS proteinas,
-       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.carbohidratos, a.carbohidratos) IS NOT NULL THEN COALESCE(c.carbohidratos, a.carbohidratos) * c.cantidad / 100 ELSE 0 END), 0) AS carbohidratos,
-       COALESCE(SUM(CASE WHEN c.unidad_medida = 'g' AND COALESCE(c.grasas, a.grasas) IS NOT NULL THEN COALESCE(c.grasas, a.grasas) * c.cantidad / 100 ELSE 0 END), 0) AS grasas,
-       COALESCE(SUM(CASE WHEN c.unidad_medida <> 'g' OR COALESCE(c.proteinas, a.proteinas) IS NULL OR COALESCE(c.carbohidratos, a.carbohidratos) IS NULL OR COALESCE(c.grasas, a.grasas) IS NULL THEN 1 ELSE 0 END), 0) AS macros_incompletos
+       COALESCE(SUM(CASE WHEN c.fuente_externa = 'recipe' AND c.proteinas IS NOT NULL THEN c.proteinas * c.cantidad WHEN c.unidad_medida = 'g' AND COALESCE(c.proteinas, a.proteinas) IS NOT NULL THEN COALESCE(c.proteinas, a.proteinas) * c.cantidad / 100 ELSE 0 END), 0) AS proteinas,
+       COALESCE(SUM(CASE WHEN c.fuente_externa = 'recipe' AND c.carbohidratos IS NOT NULL THEN c.carbohidratos * c.cantidad WHEN c.unidad_medida = 'g' AND COALESCE(c.carbohidratos, a.carbohidratos) IS NOT NULL THEN COALESCE(c.carbohidratos, a.carbohidratos) * c.cantidad / 100 ELSE 0 END), 0) AS carbohidratos,
+       COALESCE(SUM(CASE WHEN c.fuente_externa = 'recipe' AND c.grasas IS NOT NULL THEN c.grasas * c.cantidad WHEN c.unidad_medida = 'g' AND COALESCE(c.grasas, a.grasas) IS NOT NULL THEN COALESCE(c.grasas, a.grasas) * c.cantidad / 100 ELSE 0 END), 0) AS grasas,
+       COALESCE(SUM(CASE WHEN c.fuente_externa = 'recipe' THEN CASE WHEN c.proteinas IS NULL OR c.carbohidratos IS NULL OR c.grasas IS NULL THEN 1 ELSE 0 END WHEN c.unidad_medida <> 'g' OR COALESCE(c.proteinas, a.proteinas) IS NULL OR COALESCE(c.carbohidratos, a.carbohidratos) IS NULL OR COALESCE(c.grasas, a.grasas) IS NULL THEN 1 ELSE 0 END), 0) AS macros_incompletos
      FROM consumo_alimento c LEFT JOIN alimento a ON a.id_alimento = c.id_alimento
      WHERE c.id_usuario = ? AND c.fecha = ?`, [userId, date],
   );
+  const [referenceRows] = await pool.execute<RowDataPacket[]>(
+    'SELECT c.referencias_completadas FROM comida c JOIN plan_comida p ON p.id_plan = c.id_plan WHERE p.id_usuario = ? AND c.fecha = ?',
+    [userId, date],
+  );
+  const referenceMacros = { proteinas: 0, carbohidratos: 0, grasas: 0, calorias: 0 };
+  for (const row of referenceRows) {
+    const portions = parseCompletedReferencePortions(row.referencias_completadas);
+    for (const key of ['proteinas', 'carbohidratos', 'grasas'] as const) {
+      referenceMacros[key] += portions?.[key]?.macro_gramos ?? 0;
+      referenceMacros.calorias += portions?.[key]?.calorias ?? 0;
+    }
+  }
   const [[meals]] = await pool.execute<RowDataPacket[]>(`SELECT COUNT(*) AS comidas FROM comida c JOIN plan_comida p ON p.id_plan = c.id_plan WHERE p.id_usuario = ? AND c.fecha = ?`, [userId, date]);
   const [[recipes]] = await pool.execute<RowDataPacket[]>('SELECT COUNT(*) AS recetas FROM receta WHERE id_usuario = ?', [userId]);
-  res.json({ fecha: date, calorias: Number(calories.calorias), consumos: Number(calories.consumos), comidas: Number(meals.comidas), recetas: Number(recipes.recetas), proteinas: Number(macros.proteinas), carbohidratos: Number(macros.carbohidratos), grasas: Number(macros.grasas), macros_incompletos: Number(macros.macros_incompletos) });
+  res.json({ fecha: date, calorias: Number(calories.calorias) + referenceMacros.calorias, consumos: Number(calories.consumos), comidas: Number(meals.comidas), recetas: Number(recipes.recetas), proteinas: Number(macros.proteinas) + referenceMacros.proteinas, carbohidratos: Number(macros.carbohidratos) + referenceMacros.carbohidratos, grasas: Number(macros.grasas) + referenceMacros.grasas, macros_incompletos: Number(macros.macros_incompletos) });
 });
 
 router.get('/plans', requireUser, async (req, res) => {
@@ -207,7 +252,7 @@ router.post('/plans/:id/meals', requireUser, async (req, res) => {
   const date = dateValue(body.fecha, 'Fecha');
   await ensureOwned('plan_comida', 'id_plan', planId, res.locals.userId);
   const [result] = await pool.execute<ResultSetHeader>('INSERT INTO comida (id_plan, tipo_comida, fecha, hora) VALUES (?, ?, ?, ?)', [planId, mealType(body.tipo_comida), date, timeValue(body.hora)]);
-  res.status(201).json({ id_comida: result.insertId, id_plan: planId, tipo_comida: body.tipo_comida, fecha: date, hora: timeValue(body.hora), alimentos: [] });
+  res.status(201).json({ id_comida: result.insertId, id_plan: planId, tipo_comida: body.tipo_comida, fecha: date, hora: timeValue(body.hora), referencias_completadas: null, alimentos: [] });
 });
 
 router.post('/plans/:id/generate-meals', requireUser, async (req, res) => {
@@ -268,6 +313,21 @@ router.put('/meals/:id', requireUser, async (req, res) => {
   res.json({ id_comida: id, tipo_comida: type, fecha: date, hora: time });
 });
 
+router.put('/meals/:id/reference-portions', requireUser, async (req, res) => {
+  const id = idParam(req.params.id);
+  const body = v.bodyObject(req.body);
+  const portions = completedReferencePortions(body.referencias_completadas);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha FROM comida c
+     JOIN plan_comida p ON p.id_plan = c.id_plan WHERE c.id_comida = ? AND p.id_usuario = ?`,
+    [id, res.locals.userId],
+  );
+  if (!rows.length) throw new HttpError(404, 'No encontramos esa comida en tu cuenta.');
+  if (String(rows[0].fecha) !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes marcar porciones consumidas en comidas de hoy.');
+  await pool.execute('UPDATE comida SET referencias_completadas = ? WHERE id_comida = ?', [portions ? JSON.stringify(portions) : null, id]);
+  res.json({ id_comida: id, referencias_completadas: portions });
+});
+
 router.delete('/meals/:id', requireUser, async (req, res) => {
   const id = idParam(req.params.id);
   await ensureOwned('comida', 'id_comida', id, res.locals.userId);
@@ -298,6 +358,20 @@ router.delete('/meal-foods/:id', requireUser, async (req, res) => {
   res.status(204).end();
 });
 
+router.put('/meal-foods/:id/consumption', requireUser, async (req, res) => {
+  const id = idParam(req.params.id);
+  const body = v.bodyObject(req.body);
+  const amount = consumedAmount(body.cantidad_consumida);
+  const unit = unitValue(body.unidad_consumida);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT d.id_detalle FROM detalle_comida d JOIN comida c ON c.id_comida = d.id_comida JOIN plan_comida p ON p.id_plan = c.id_plan WHERE d.id_detalle = ? AND p.id_usuario = ?',
+    [id, res.locals.userId],
+  );
+  if (!rows.length) throw new HttpError(404, 'No encontramos ese alimento en tu plan.');
+  await pool.execute('UPDATE detalle_comida SET cantidad_consumida = ?, unidad_consumida = ? WHERE id_detalle = ?', [amount, unit, id]);
+  res.json({ id_detalle: id, cantidad_consumida: amount, unidad_consumida: unit });
+});
+
 router.get('/consumptions', requireUser, async (req, res) => {
   const today = todayInAppTimeZone();
   const from = dateValue(req.query.from ?? today, 'Fecha inicial');
@@ -305,6 +379,39 @@ router.get('/consumptions', requireUser, async (req, res) => {
   if (to < from || new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime() > 366 * 86400000) throw new HttpError(400, 'El intervalo debe ser válido y no superar un año.');
   const [rows] = await pool.execute<RowDataPacket[]>(`SELECT c.id_consumo, c.id_alimento, COALESCE(c.nombre_alimento, a.nombre) AS alimento, DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha, c.cantidad, c.unidad_medida, c.calorias_totales, c.categoria_alimento, c.calorias_por_100g, c.proteinas, c.carbohidratos, c.grasas, c.fuente_externa, c.id_fuente_externa FROM consumo_alimento c LEFT JOIN alimento a ON a.id_alimento = c.id_alimento WHERE c.id_usuario = ? AND c.fecha BETWEEN ? AND ? ORDER BY c.fecha DESC, c.id_consumo DESC`, [res.locals.userId, from, to]);
   res.json(rows.map(row => ({ id_consumo: Number(row.id_consumo), id_alimento: row.id_alimento == null ? null : Number(row.id_alimento), alimento: String(row.alimento), fecha: String(row.fecha), cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_totales: row.calorias_totales == null ? null : Number(row.calorias_totales), food_snapshot: row.fuente_externa == null ? null : { nombre: String(row.alimento), categoria: row.categoria_alimento == null ? null : String(row.categoria_alimento), calorias_por_100g: row.calorias_por_100g == null ? null : Number(row.calorias_por_100g), proteinas: row.proteinas == null ? null : Number(row.proteinas), carbohidratos: row.carbohidratos == null ? null : Number(row.carbohidratos), grasas: row.grasas == null ? null : Number(row.grasas), source: String(row.fuente_externa), source_id: String(row.id_fuente_externa) } })));
+});
+
+router.post('/consumptions/recipes', requireUser, async (req, res) => {
+  const body = v.bodyObject(req.body);
+  const date = dateValue(body.fecha, 'Fecha');
+  if (date !== todayInAppTimeZone()) throw new HttpError(400, 'Solo puedes registrar alimentos para el día actual.');
+  const name = v.text(body.nombre, 'Nombre de receta', 150);
+  const sourceId = v.text(body.recipe_id, 'Identificador de receta', 32);
+  if (!/^[a-z0-9-]+$/.test(sourceId)) throw new HttpError(400, 'El identificador de receta no es válido.');
+  const numberField = (value: unknown, label: string) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 999999) throw new HttpError(400, `${label}: ingresa un valor válido.`);
+    return Math.round(value * 1000) / 1000;
+  };
+  const calories = numberField(body.calorias, 'Calorías');
+  const protein = numberField(body.proteinas, 'Proteínas');
+  const carbs = numberField(body.carbohidratos, 'Carbohidratos');
+  const fats = numberField(body.grasas, 'Grasas');
+  const userId = res.locals.userId as number;
+  const [existing] = await pool.execute<RowDataPacket[]>(
+    `SELECT id_consumo, COALESCE(nombre_alimento, '') AS alimento, cantidad, unidad_medida, calorias_totales
+     FROM consumo_alimento WHERE id_usuario = ? AND fecha = ? AND fuente_externa = 'recipe' AND id_fuente_externa = ? LIMIT 1`,
+    [userId, date, sourceId],
+  );
+  if (existing.length) {
+    const row = existing[0];
+    return res.json({ id_consumo: Number(row.id_consumo), id_alimento: null, alimento: String(row.alimento), fecha: date, cantidad: Number(row.cantidad), unidad_medida: String(row.unidad_medida), calorias_totales: row.calorias_totales == null ? null : Number(row.calorias_totales), already_consumed: true });
+  }
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO consumo_alimento (id_usuario, id_alimento, nombre_alimento, categoria_alimento, calorias_por_100g, proteinas, carbohidratos, grasas, fuente_externa, id_fuente_externa, fecha, cantidad, unidad_medida, calorias_totales)
+     VALUES (?, NULL, ?, 'Receta', NULL, ?, ?, ?, 'recipe', ?, ?, 1, 'porcion', ?)`,
+    [userId, name, protein, carbs, fats, sourceId, date, calories],
+  );
+  res.status(201).json({ id_consumo: result.insertId, id_alimento: null, alimento: name, fecha: date, cantidad: 1, unidad_medida: 'porcion', calorias_totales: calories, already_consumed: false });
 });
 
 router.post('/consumptions', requireUser, async (req, res) => {

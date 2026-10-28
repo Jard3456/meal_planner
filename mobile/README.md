@@ -20,7 +20,7 @@ Escanea el QR con una versión de Expo Go compatible con SDK 58. También puedes
 - Pantallas iniciales en español, componentes reutilizables y áreas seguras.
 - TypeScript estricto, cliente HTTP, autenticación y tipos alineados con el esquema MySQL.
 
-Las cinco pantallas tienen flujos conectados a la API: Inicio muestra un resumen diario; Planificador permite crear, editar y eliminar planes y comidas, y agregar alimentos; Historial registra, edita y elimina consumos por fecha; Recetas permite crear, editar y eliminar recetas; Perfil registra cuentas, inicia sesión y guarda datos personales y objetivos. El catálogo permite consultar y agregar alimentos con sus valores nutricionales. Los cambios de cuenta se guardan en MySQL.
+Las cinco pantallas tienen flujos conectados a la API: Inicio muestra un resumen diario; Planificador permite crear, editar y eliminar planes y comidas, y agregar alimentos; Historial registra, edita y elimina consumos por fecha; Recetas muestra ideas locales por tipo de comida, ajustadas al perfil cuando hay datos disponibles, y permite crear, editar y eliminar recetas propias; Perfil registra cuentas, inicia sesión y guarda datos personales y objetivos. Cada tarjeta de sugerencia despliega su preparación con el botón «Más información». El formulario manual se despliega desde un botón. El catálogo permite consultar y agregar alimentos con sus valores nutricionales. Los cambios de cuenta se guardan en MySQL.
 
 ```text
 src/

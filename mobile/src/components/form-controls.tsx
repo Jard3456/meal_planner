@@ -8,8 +8,8 @@ export function FormField({ label, ...props }: TextInputProps & { label: string 
   return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput {...props} accessibilityLabel={label} style={[styles.input, props.multiline && styles.multiline]} placeholderTextColor={palette.muted} /></View>;
 }
 
-export function FormButton({ label, onPress, busy = false, secondary = false, danger = false }: { label: string; onPress: () => void; busy?: boolean; secondary?: boolean; danger?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, danger && styles.danger, (pressed || busy) && styles.pressed]}>
+export function FormButton({ label, onPress, busy = false, disabled = false, secondary = false, danger = false }: { label: string; onPress: () => void; busy?: boolean; disabled?: boolean; secondary?: boolean; danger?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: disabled || busy, busy }} disabled={disabled || busy} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, danger && styles.danger, (pressed || busy || disabled) && styles.pressed]}>
     {busy ? <ActivityIndicator color={secondary ? palette.green : '#FFFFFF'} /> : <Text style={[styles.buttonText, secondary && styles.secondaryText, danger && styles.dangerText]}>{label}</Text>}
   </Pressable>;
 }

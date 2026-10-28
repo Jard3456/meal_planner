@@ -59,6 +59,18 @@ async function ensureExternalFoodSnapshots() {
     }
     if (existing.get('id_alimento') === 'NO') await pool.query(`ALTER TABLE ${table} MODIFY COLUMN id_alimento INT UNSIGNED NULL`);
   }
+  const [mealDetailRows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS nombre FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'detalle_comida'`,
+    [config.db.database],
+  );
+  const mealDetailColumns = new Set(mealDetailRows.map(row => String(row.nombre)));
+  if (!mealDetailColumns.has('cantidad_consumida')) await pool.query('ALTER TABLE detalle_comida ADD COLUMN cantidad_consumida DECIMAL(10,2) NULL');
+  if (!mealDetailColumns.has('unidad_consumida')) await pool.query('ALTER TABLE detalle_comida ADD COLUMN unidad_consumida VARCHAR(12) NULL');
+  const [mealColumns] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS nombre FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'comida'`,
+    [config.db.database],
+  );
+  if (!mealColumns.some(row => String(row.nombre) === 'referencias_completadas')) await pool.query('ALTER TABLE comida ADD COLUMN referencias_completadas TEXT NULL');
 }
 
 export async function checkDatabase() {
